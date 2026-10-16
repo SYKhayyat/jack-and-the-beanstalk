@@ -58,6 +58,22 @@ class SkinTone(StrEnum):
     DEEPEST_BROWN = "deepest_brown"
 
 
+class PortraitBackground(StrEnum):
+    """Background of the cartoon portrait.
+
+    Applies to pass 1 only. It is deliberately *not* carried into the scene
+    prompt: pass 2 draws the scene from its own specification, so a background
+    requested here would not survive into the final image — and a busy one in
+    the reference actively fights the scene's caption. See
+    `prompts._portrait_background_clause`.
+    """
+
+    AS_UPLOADED = "as_uploaded"
+    PLAIN = "plain"
+    SOFT_COLOUR = "soft_colour"
+    STORYBOOK = "storybook"
+
+
 class LikenessStrength(StrEnum):
     """How hard to hold on to the uploaded face.
 
@@ -97,6 +113,17 @@ class CartoonSettings(BaseModel):
     # --- art direction ---
     cartoon_style: CartoonStyle = CartoonStyle.WESTERN_CARTOON
     aspect_ratio: AspectRatio = AspectRatio.LANDSCAPE
+    portrait_background: PortraitBackground = PortraitBackground.PLAIN
+    candidates: int = Field(
+        default=1,
+        ge=1,
+        le=3,
+        description=(
+            "How many alternatives to generate for the portrait. One API call "
+            "covers all of them, so three candidates is three times the cost of "
+            "one, but it lets you pick rather than re-roll blindly."
+        ),
+    )
 
     # --- who the character is ---
     apparent_age: ApparentAge = ApparentAge.AS_UPLOADED
