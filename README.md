@@ -48,22 +48,30 @@ cartoonifies the photo (call 1) and then composes the scene (call 2), so 200
 finished pictures is **400 billed image generations**. Every figure below is per
 *call*.
 
-| Model | Per call (1K image) | 200 pictures (400 calls) | Free tier? |
+| Provider | Per call (1K image) | 200 pictures (400 calls) | Free tier? |
 | --- | --- | --- | --- |
-| OpenAI `gpt-image-2.5`, `quality=low` | $0.00588 | **~$2.35** | No |
+| **OpenAI `gpt-image-2.5-flare`, `quality=low`** (default) | **$0.00588** | **~$2.35** | No |
+| OpenAI `gpt-image-2.5-*`, `quality=medium` | not published | — | No |
 | Cloudflare `flux-2-klein-9b` | $0.015 / MP | ~$6.00 | **Yes — ~6 images/day free** |
-| **Gemini `gemini-3.1-flash-lite-image`** (default) | **$0.0336** | **~$13.50** | No |
-| Gemini `gemini-nano-banana-2.1` | $0.0336 | ~$13.50 | No |
+| Gemini `gemini-3.1-flash-lite-image` | $0.0336 | ~$13.50 | No |
 | Gemini `gemini-3.1-flash-image` | $0.067 | ~$26.80 | No |
-| Gemini `gemini-3-pro-image` | $0.134 | ~$53.60 | No |
 
-Input tokens add roughly $0.20–0.50 across a whole run — negligible. OpenAI's
-figure is its published calculator output for `low` quality (196 output tokens
-at $30/1M); their page renders medium/high only interactively, so treat the
-higher tiers as unmeasured. OpenAI also warns complex image prompts can take up
-to two minutes.
+**OpenAI is the default here**, because at `quality=low` it is roughly 5.7×
+cheaper than the cheapest Gemini image model for the same job, and the two-step
+flow below makes the quality question cheap to settle empirically rather than by
+guesswork. If likeness turns out to need more than `low`, raise
+`OPENAI_QUALITY` — an environment change, not a code change. Gemini stays
+wired up as the fallback; `IMAGE_PROVIDER=gemini` switches to it.
 
-**There is no free trial credit for the Gemini API any more.** Google's billing
+Note that OpenAI only renders its per-image token counts in an interactive
+calculator, so the `medium` and `high` tiers cannot be quoted from the static
+pricing page. The `low` figure above is the one OpenAI states outright.
+
+Input tokens add a few cents across a whole run — negligible. OpenAI also warns
+that complex image prompts can take up to two minutes, which is why the default
+`GENERATION_TIMEOUT_SECONDS` is generous.
+
+**Gemini has no free trial credit any more.** Google's billing
 docs state that the $300 Google Cloud welcome credit *cannot* be used for
 Gemini API or AI Studio usage, and that Gemini API was excluded from the Cloud
 Free Trial from March 2026. Since March 2026, paid Gemini API access is on a
@@ -76,6 +84,10 @@ Two corrections worth stating plainly, because the obvious assumptions are wrong
   free-tier column reads *Not available* for every image model, while text
   models read *Free of charge*. You need billing enabled on the API key. The
   *web UI* at <https://aistudio.google.com> is still free — see below.
+- **The provider is a config change, not a rewrite.** `IMAGE_PROVIDER` picks
+  between `mock`, `openai` and `gemini`. Both real providers send reference
+  images with the text in one call, which is the capability this app is built
+  on.
 - **Do not use `gemini-2.5-flash-image`.** Google deprecated it and gave a
   shutdown date of **2026-10-02**, naming `gemini-3.1-flash-image` and
   `gemini-3.1-flash-lite-image` as the migration targets. This repo defaults to
@@ -181,10 +193,12 @@ app/
 │   └── image_providers/  #     the swappable backend boundary
 │       ├── base.py       #         the ImageProvider contract
 │       ├── mock.py       #         offline placeholder renderer
-│       ├── gemini.py     #         the real implementation
+│       ├── openai_provider.py #   the default real backend
+│       ├── gemini.py     #         the fallback backend
 │       └── registry.py   #         name → class
 ├── routes/               # CONTROLLER: web.py, api.py, media.py
 ├── templates/index.html  # VIEW
+├── routes/settings_form.py # settings form fields, shared by both endpoints
 └── static/               # VIEW: style.css, app.js
 ```
 
@@ -235,7 +249,9 @@ is only one of it.
 | `GET` | `/healthz` | Liveness plus the active provider. Never includes secrets. |
 | `GET` | `/api/scenes` | The scene catalogue, with captions |
 | `GET` | `/api/settings-options` | Every enum, the defaults, and the slider limits |
-| `POST` | `/api/generate` | multipart form: `photo` + `scene` + settings → JSON |
+| `POST` | `/api/cartoonify` | multipart: `photo` + settings → the cartoon portrait (1 call) |
+| `POST` | `/api/compose` | form: `generation_id` + `scene` → the scene image (1 call) |
+| `POST` | `/api/generate` | multipart: `photo` + `scene` + settings → both, in one shot (2 calls) |
 | `GET` | `/media/{id}/cartoon` | The cartoon portrait |
 | `GET` | `/media/{id}/scene` | The scene image |
 | `GET` | `/media/{id}/meta.json` | Prompts, caption, provider and model used |
@@ -250,6 +266,7 @@ stack trace or a key:
 | Status | `error` | Meaning |
 | --- | --- | --- |
 | `400` | `unknown_scene` | That scene key is not in the catalogue |
+| `404` | `unknown_draft` | That `generation_id` expired or never existed |
 | `400` | `invalid_image` | Not a readable still image, or too large |
 | `422` | `invalid_settings` | A setting failed validation |
 | `429` | `server_busy` | Every generation slot was busy; nothing was sent to the model |
@@ -260,12 +277,24 @@ stack trace or a key:
 Example:
 
 ```bash
+# Two calls, so a likeness you dislike costs one call rather than two.
+DRAFT=$(curl -s -X POST http://localhost:8000/api/cartoonify \
+  -F photo=@me.jpg -F cartoon_intensity=9 -F cartoon_style=manga \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["generation_id"])')
+
+curl -X POST http://localhost:8000/api/compose \
+  -F generation_id="$DRAFT" -F scene=planting-seeds
+
+# Swap scene for the other beat; the portrait is reused, so it is still one call.
+curl -X POST http://localhost:8000/api/compose \
+  -F generation_id="$DRAFT" -F scene=climbing-beanstalk
+```
+
+`POST /api/generate` remains for one-shot use:
+
+```bash
 curl -X POST http://localhost:8000/api/generate \
-  -F photo=@me.jpg \
-  -F scene=planting-seeds \
-  -F cartoon_intensity=9 \
-  -F cartoon_style=manga \
-  -F likeness_strength=strict
+  -F photo=@me.jpg -F scene=planting-seeds -F cartoon_intensity=9
 ```
 
 ## Adding a provider
@@ -283,6 +312,47 @@ backend is running.
 Add one `Scene(...)` entry to `SCENES` in `app/models/scenes.py`. The UI, the
 API and the prompts pick it up automatically. Fill in `must_include` and
 `must_avoid` — the negative list is what stops scene-to-scene contamination.
+
+## Two steps, so you only pay for what you keep
+
+The pipeline is two calls, and the interface keeps them apart on purpose:
+
+```
+  upload + settings
+        │
+        ▼
+  ┌───────────────┐   1 call    ┌──────────────────────────┐
+  │  /api/cartoonify │──────────▶  cartoon portrait         │
+  └───────────────┘             │  "does this look like me?" │
+        ▲                      └──────────┬───────────────┘
+        │  tweak settings, retry           │ approve
+        └───────────────────────────────────┤
+                                            │ 1 call
+                                            ▼
+                              ┌──────────────────────────┐
+                              │  /api/compose             │
+                              │  portrait + photo → scene │
+                              └──────────────────────────┘
+```
+
+Three things fall out of that split, and all three are cost or quality wins:
+
+- **A likeness you dislike costs one call, not two.** Change the intensity, the
+  style, the hair, the likeness strength, and retry — the settings panel stays
+  live while you look at the portrait. Only an approved portrait is worth a
+  scene call.
+- **Both scenes from one portrait is one call, not two.** That is how "two
+  scenes, same story, same person" is meant to be produced.
+- **The judgement happens where it is cheap.** Deciding whether the face
+  survived is a question about the portrait, and the portrait is the cheap
+  half. Settling it after paying for the scene is backwards.
+
+`POST /api/generate` still does both in one request for scripts and API
+clients. The UI does not use it.
+
+The draft — the portrait *and* the normalised photo — is persisted, which is
+what lets pass 2 send both identity anchors without the browser re-uploading
+anything.
 
 ## Stress testing, for free
 
@@ -356,7 +426,7 @@ is the setting times the worker count.
 ## Tests
 
 ```bash
-pytest --cov                       # 180 tests, 98% statement coverage
+pytest --cov                       # 238 tests, 98% statement coverage
 ruff check . && ruff format --check .
 mypy app
 ```
@@ -417,7 +487,10 @@ response cycle.
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `IMAGE_PROVIDER` | `mock` | `mock` or `gemini` |
+| `IMAGE_PROVIDER` | `mock` | `mock`, `openai` or `gemini` |
+| `OPENAI_API_KEY` | *(empty)* | Required for `openai` |
+| `OPENAI_MODEL` | `gpt-image-2.5-flare` | Cheapest published per-call price |
+| `OPENAI_QUALITY` | `low` | `medium`/`high`/`xhigh`/`max` cost more; raise only if likeness needs it |
 | `GEMINI_API_KEY` | *(empty)* | Required for `gemini` |
 | `GEMINI_MODEL` | `gemini-3.1-flash-lite-image` | Keep it cheap. `gemini-3.1-flash-image` is the higher-quality option. |
 | `APP_ENV` | `development` | `production` raises the log level |

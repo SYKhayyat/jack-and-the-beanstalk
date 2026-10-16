@@ -28,14 +28,23 @@ services:
         value: production
 
       # Start on the mock provider so the first deploy boots green with no key.
-      # Switch this to "gemini" in the dashboard once you have added one.
+      # Switch this to "openai" in the dashboard once you have added one.
       - key: IMAGE_PROVIDER
         value: mock
 
       # Paste your key into the Render dashboard when prompted.
-      - key: GEMINI_API_KEY
+      - key: OPENAI_API_KEY
         sync: false
 
+      # Cheapest configuration OpenAI publishes: ~$0.0059 per image call.
+      - key: OPENAI_MODEL
+        value: gpt-image-2.5-flare
+      - key: OPENAI_QUALITY
+        value: low
+
+      # Gemini is the fallback provider; only used if IMAGE_PROVIDER=gemini.
+      - key: GEMINI_API_KEY
+        sync: false
       - key: GEMINI_MODEL
         value: gemini-3.1-flash-lite-image
 
