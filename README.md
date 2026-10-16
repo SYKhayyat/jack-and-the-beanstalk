@@ -211,7 +211,7 @@ API and the prompts pick it up automatically. Fill in `must_include` and
 ## Tests
 
 ```bash
-pytest --cov                       # 148 tests, 98% statement coverage
+pytest --cov                       # 162 tests, 98% statement coverage
 ruff check . && ruff format --check .
 mypy app
 ```
