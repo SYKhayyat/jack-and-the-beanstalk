@@ -13,7 +13,7 @@ services:
     plan: free
     region: oregon
 
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install --requirement requirements.lock
     # --factory tells uvicorn to call create_app() itself, which is how the app
     # receives its settings from the environment.
     startCommand: uvicorn app.main:create_app --factory --host 0.0.0.0 --port $PORT
@@ -42,12 +42,6 @@ services:
       - key: OPENAI_QUALITY
         value: low
 
-      # Gemini is the fallback provider; only used if IMAGE_PROVIDER=gemini.
-      - key: GEMINI_API_KEY
-        sync: false
-      - key: GEMINI_MODEL
-        value: gemini-3.1-flash-lite-image
-
       - key: MAX_UPLOAD_MB
         value: "10"
 
@@ -59,3 +53,6 @@ services:
       # than fanning out into more billable calls.
       - key: MAX_CONCURRENT_GENERATIONS
         value: "2"
+
+      - key: STORAGE_DIR
+        value: /tmp/jack-and-the-beanstalk-storage

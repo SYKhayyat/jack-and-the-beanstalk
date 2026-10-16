@@ -5,14 +5,13 @@ PY   := $(VENV)/bin/python
 
 install: ## Create the venv and install everything
 	python3 -m venv $(VENV)
-	$(VENV)/bin/pip install --upgrade pip
-	$(VENV)/bin/pip install -r requirements-dev.txt
+	$(VENV)/bin/pip install --requirement requirements-dev.lock
 
 dev: ## Run with reload in mock mode (no API key needed)
 	$(VENV)/bin/uvicorn app.main:create_app --factory --reload --port 8000
 
 test: ## Run the suite with coverage
-	$(VENV)/bin/pytest --cov
+	$(VENV)/bin/python -m pytest --cov=app --cov-report=term-missing
 
 lint: ## Check formatting and lint rules
 	$(VENV)/bin/ruff check .

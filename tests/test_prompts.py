@@ -66,8 +66,18 @@ class TestCartoonPrompt:
     @pytest.mark.parametrize("style", list(CartoonStyle), ids=lambda s: s.value)
     def test_every_style_has_distinct_language(self, style: CartoonStyle) -> None:
         prompt = build_cartoon_prompt(CartoonSettings(cartoon_style=style))
-        rendered = style.value.replace("_", " ")
-        assert rendered.split()[0] in prompt.lower()
+        expected_terms = {
+            CartoonStyle.MANGA: "screentone",
+            CartoonStyle.ANIME: "cel shading",
+            CartoonStyle.WESTERN_CARTOON: "western cartoon",
+            CartoonStyle.PIXAR_LIKE: "3d animated feature",
+            CartoonStyle.DISNEY_LIKE: "hand-painted 2d",
+            CartoonStyle.COMIC_BOOK: "comic book",
+            CartoonStyle.PENCIL_SKETCH: "graphite pencil",
+            CartoonStyle.WATERCOLOUR: "watercolour",
+            CartoonStyle.VECTOR_FLAT: "flat vector",
+        }
+        assert expected_terms[style] in prompt.lower()
 
     def test_styles_are_not_all_identical(self) -> None:
         prompts = {

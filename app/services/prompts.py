@@ -69,10 +69,10 @@ _STYLE_DESCRIPTIONS: dict[CartoonStyle, str] = {
     CartoonStyle.PIXAR_LIKE: (
         "high-end 3D animated feature style, soft global illumination, subsurface-scattered "
         "skin, large expressive eyes with real catchlights, appealing stylised proportions, "
-        "shallow depth of field, warm cinematic colour grading, Pixar-like character design"
+        "shallow depth of field, warm cinematic colour grading, polished family-film design"
     ),
     CartoonStyle.DISNEY_LIKE: (
-        "Disney-like classic hand-painted 2D animation style, fluid confident curves, soft "
+        "classic hand-painted 2D animation style, fluid confident curves, soft "
         "painted backgrounds, expressive appealing character design, warm colour, generous "
         "rounded shapes, storybook cel animation finish"
     ),

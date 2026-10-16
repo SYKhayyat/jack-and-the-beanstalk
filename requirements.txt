@@ -1,17 +1,3 @@
-# Runtime dependencies. Pinned to compatible-release ranges so Render resolves
-# a recent, stable version without surprising future breaks.
-
-fastapi>=0.115,<1.0
-uvicorn[standard]>=0.30,<1.0
-jinja2>=3.1,<4.0
-python-multipart>=0.0.9,<1.0
-pydantic>=2.8,<3.0
-pydantic-settings>=2.4,<3.0
-pillow>=10.4,<12.0
-
-# Image generation backends. Only imported when the matching IMAGE_PROVIDER is
-# selected, but installed here so a Render deploy has them the moment you add
-# a key. OpenAI is the default: gpt-image-2.5-flare at quality=low works out at
-# roughly $0.0059 per call, against $0.034 for the cheapest Gemini image model.
-openai>=2.0,<4.0
-google-genai>=1.0,<2.0
+# Compatibility entry point for tools that expect requirements.txt.
+# The exact runtime graph is committed in requirements.lock.
+-r requirements.lock

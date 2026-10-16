@@ -16,11 +16,19 @@ Two scenes ship, and the same person can be put into either:
 
 ```bash
 git clone <your-fork> && cd jack-and-the-beanstalk
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements-dev.txt
+make install
 
 cp .env.example .env          # optional; mock mode needs no key
-uvicorn app.main:create_app --factory --reload --port 8000
+make dev
+```
+
+`make install` uses the committed lockfile and `.python-version` pins the local
+runtime to Python 3.12.8. If you prefer not to install Python dependencies on the
+host, build and run the same app in Docker:
+
+```bash
+docker build -t jack-and-the-beanstalk .
+docker run --rm -p 8000:8000 jack-and-the-beanstalk
 ```
 
 Open <http://localhost:8000>. With no `.env` at all the app runs in **mock
@@ -32,8 +40,8 @@ test the app without spending anything — see
 To use the real model, set in `.env`:
 
 ```bash
-IMAGE_PROVIDER=gemini
-GEMINI_API_KEY=your-key-here
+IMAGE_PROVIDER=openai
+OPENAI_API_KEY=your-key-here
 ```
 
 ## Choosing an API key
@@ -141,8 +149,10 @@ spending. Adding either as a third provider is a config change; see
 
 ## Your API key
 
-- It lives in the `GEMINI_API_KEY` environment variable. Never in code, never
-  in the repo, never in Slack.
+- It lives in the `OPENAI_API_KEY` environment variable when using the default
+  real provider. Never in code, never in the repo, never in Slack.
+- Gemini is also supported: set `IMAGE_PROVIDER=gemini` and use
+  `GEMINI_API_KEY` instead. Only the selected provider's key is read.
 - `.env` is gitignored. `.env.example` is committed and contains only blank
   placeholders.
 - The app never logs it. There is a test (`test_healthz_never_leaks_the_key`,
@@ -157,7 +167,7 @@ spending. Adding either as a third provider is a config change; see
 | Control | Type | What it does |
 | --- | --- | --- |
 | Cartoon vs. real | slider 1–10 | 1 is nearly photographic with a hint of line art; 10 is fully graphic. Each step has its own hand-written prompt language rather than a numeric formula. |
-| Cartoon style | 9 options | Manga, anime, western cartoon, Pixar-like, Disney-like, comic book, pencil sketch, watercolour, flat vector. |
+| Cartoon style | 9 options | Manga, anime, western cartoon, soft 3D animated feature, hand-painted 2D animation, comic book, pencil sketch, watercolour, flat vector. |
 | Portrait background | 4 options | Plain, soft colour, keep the photo's, storybook. Portrait only — see above. |
 | Options to choose from | 1–3 | Several alternatives from one call; 3 costs 3×. |
 | Likeness to the real you | strict / balanced / loose | How hard to hold on to the uploaded face. Strict is the default because "recognisably the same person" is a graded requirement. |
@@ -165,9 +175,9 @@ spending. Adding either as a third provider is a config change; see
 | Age | as uploaded / child / teen / adult | Apparent age of the cartoon character. |
 | Gender presentation | as uploaded / feminine / masculine / androgynous | Re-designed from the same facial bone structure, not swapped in from elsewhere. |
 | Skin tone | as uploaded + 8 tones | Independent of the photo, or faithful to it. |
-| Hair style, hair colour | free text | `as_uploaded` keeps the original; anything else is a description. |
-| Outfit | free text | Defaults to storybook costume. |
-| Expression | free text | Defaults to *focused and determined*. |
+| Hair style, hair colour | closed choices | `as_uploaded` keeps the original; the other reviewed choices are safe, predictable prompt terms. |
+| Outfit | closed choices | Defaults to storybook costume. |
+| Expression | closed choices | Defaults to *focused and determined*. |
 | Keep my glasses / Keep my facial hair | checkboxes | Whether real-world accessories carry into the cartoon. |
 | Scene | 2 options | The story beat to draw. |
 
@@ -489,9 +499,11 @@ is the setting times the worker count.
 ## Tests
 
 ```bash
-pytest --cov                       # 285 tests, 98% statement coverage
-ruff check . && ruff format --check .
-mypy app
+make test
+make lint
+make typecheck
+# or all three with:
+make check
 ```
 
 The suite is fully offline and deterministic: it never touches the network and
@@ -533,18 +545,20 @@ The repo ships a blueprint, so this is short:
 1. Push the repo to GitHub.
 2. In Render: **New → Blueprint**, pick the repo, apply. `render.yaml` declares
    the build and start commands and the health check.
-3. Render will prompt for `GEMINI_API_KEY` — paste it there. That is the only
+3. Render will prompt for `OPENAI_API_KEY` — paste it there. That is the only
    place it belongs. It is never in the repo.
 4. Leave `IMAGE_PROVIDER=mock` for the first deploy so it boots green. Then set
-   `IMAGE_PROVIDER=gemini` in the dashboard and save; Render redeploys.
+   `IMAGE_PROVIDER=openai` in the dashboard and save; Render redeploys. The
+   blueprint uses the cheap `gpt-image-2.5-flare` model at low quality.
 5. Check `https://<your-app>.onrender.com/healthz` — it should report
    `"using_real_api": true`.
 6. Put the live URL in the hand-in and in Slack.
 
 Render's free plan sleeps after inactivity, so the first request to the deployed
-URL takes a while. The ephemeral filesystem means generated images do not
-survive a redeploy — irrelevant here, because results are displayed in the same
-response cycle.
+URL takes a while. The two-step review draft lives on the instance filesystem;
+if Render restarts between steps, the UI will ask the user to upload again. Use
+the one-step checkbox for a single-request demo, or add durable object storage
+before scaling beyond a classroom deployment.
 
 ## Configuration reference
 
