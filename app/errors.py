@@ -14,10 +14,12 @@ from fastapi.responses import JSONResponse
 
 from app.services.image_providers.base import ProviderError, ProviderUnavailable
 from app.services.images import InvalidImage
+from app.services.pipeline import UnknownGeneration
 
 __all__ = [
     "AppError",
     "InvalidSettings",
+    "UnknownDraft",
     "UnknownScene",
     "register_exception_handlers",
 ]
@@ -30,6 +32,13 @@ class AppError(Exception):
 
     status_code = status.HTTP_400_BAD_REQUEST
     error_code = "app_error"
+
+
+class UnknownDraft(AppError):
+    """No draft exists for that generation id — expired, deleted, or never made."""
+
+    status_code = 404
+    error_code = "unknown_draft"
 
 
 class UnknownScene(AppError):
@@ -77,6 +86,14 @@ def register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=exc.status_code,
             content={"error": exc.error_code, "detail": str(exc)},
+        )
+
+    @app.exception_handler(UnknownGeneration)
+    async def _unknown_draft(_: Request, exc: UnknownGeneration) -> JSONResponse:
+        logger.info("app_error unknown_draft: %s", exc)
+        return JSONResponse(
+            status_code=404,
+            content={"error": "unknown_draft", "detail": str(exc)},
         )
 
     @app.exception_handler(ProviderUnavailable)

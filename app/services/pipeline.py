@@ -1,7 +1,7 @@
 """The generation pipeline: photo in, captioned scene image out.
 
-Two sequential passes, because the assignment asks for two distinct
-transformations and they want different things from the model:
+Two passes, because the assignment asks for two distinct transformations and
+they want different things from the model:
 
     pass 1  cartoonify  photo -> cartoon portrait          (applies all settings)
     pass 2  compose     cartoon portrait + photo -> scene  (applies scene spec)
@@ -9,6 +9,11 @@ transformations and they want different things from the model:
 The cartoon portrait from pass 1 is passed into pass 2 as a reference alongside
 the original photo. That double anchor is what keeps the face recognisable once
 the scene action competes for the model's attention.
+
+The two passes are separate public methods, not one `run`. That is what lets the
+user review the portrait, tweak settings and retry, and only then pay for the
+scene call — and it means moving an approved portrait into the other scene
+costs one call instead of two.
 """
 
 from __future__ import annotations
@@ -23,11 +28,31 @@ from app.services.image_providers.base import (
     ImageRequest,
 )
 from app.services.prompts import build_cartoon_prompt, build_scene_prompt
-from app.services.storage import GenerationStore, StoredGeneration
+from app.services.storage import Draft, GenerationStore, StoredGeneration
 
-__all__ = ["GenerationPipeline", "PipelineOutcome"]
+__all__ = [
+    "ComposedGeneration",
+    "GenerationPipeline",
+    "PipelineOutcome",
+    "UnknownGeneration",
+]
 
 logger = logging.getLogger(__name__)
+
+# A real generated image is far bigger than this. Below it, the provider almost
+# certainly returned a placeholder rather than a generation.
+_MIN_PLAUSIBLE_IMAGE_BYTES = 1024
+
+
+class UnknownGeneration(Exception):
+    """No draft exists for that id — expired, deleted, or never created."""
+
+    def __init__(self, generation_id: str) -> None:
+        super().__init__(
+            f"No draft found for {generation_id!r}. It may have expired. "
+            "Upload the photo again to start a new one."
+        )
+        self.generation_id = generation_id
 
 
 class PipelineOutcome:
@@ -40,12 +65,169 @@ class PipelineOutcome:
         self.stored = stored
 
 
+class ComposedGeneration:
+    """A draft plus the scene image composed from it."""
+
+    __slots__ = ("result", "stored")
+
+    def __init__(self, result: GenerationResult, stored: StoredGeneration) -> None:
+        self.result = result
+        self.stored = stored
+
+
 class GenerationPipeline:
-    """Runs both passes and persists the artefacts."""
+    """Runs the two passes, individually or together."""
 
     def __init__(self, provider: ImageProvider, store: GenerationStore) -> None:
         self._provider = provider
         self._store = store
+
+    # --- pass 1 ---------------------------------------------------------------
+
+    def cartoonify(
+        self,
+        *,
+        photo_data: bytes,
+        photo_media_type: str,
+        settings: CartoonSettings,
+        generation_id: str | None = None,
+        persist: bool = True,
+    ) -> Draft:
+        """Pass 1: photo in, cartoon portrait out.
+
+        Persisting keeps the normalised photo alongside the portrait, so pass 2
+        can send both as references without the browser re-uploading anything.
+        The returned draft carries the id and the prompt that produced it.
+        """
+        draft = self._build_cartoon(
+            photo_data=photo_data,
+            photo_media_type=photo_media_type,
+            settings=settings,
+            generation_id=generation_id or uuid4().hex,
+        )
+        if persist:
+            self._store.save_draft(draft)
+        return draft
+
+    def _build_cartoon(
+        self,
+        *,
+        photo_data: bytes,
+        photo_media_type: str,
+        settings: CartoonSettings,
+        generation_id: str,
+    ) -> Draft:
+        """Pass 1's work, returned as a draft without persisting it."""
+        prompt = build_cartoon_prompt(settings)
+
+        logger.info(
+            "pipeline.cartoonify id=%s provider=%s style=%s intensity=%s",
+            generation_id,
+            self._provider.name,
+            settings.cartoon_style,
+            settings.cartoon_intensity,
+        )
+
+        cartoon = self._provider.generate(
+            ImageRequest(
+                prompt=prompt,
+                reference_images=(photo_data,),
+                reference_media_types=(photo_media_type,),
+                output_format="png",
+                aspect_ratio=str(settings.aspect_ratio),
+                label="cartoonify",
+            )
+        )
+        _require_image(cartoon, "cartoon portrait")
+
+        return Draft(
+            generation_id=generation_id,
+            settings=settings,
+            cartoon_prompt=prompt,
+            cartoon_image=cartoon.data,
+            photo_data=photo_data,
+            photo_media_type=photo_media_type,
+            provider=self._provider.name,
+            model=cartoon.model or "unknown",
+        )
+
+    # --- pass 2 ---------------------------------------------------------------
+
+    def compose(
+        self, *, draft: Draft, scene: Scene, persist: bool = True
+    ) -> ComposedGeneration:
+        """Pass 2: the cartoon portrait (plus the original photo) into a scene."""
+        prompt = build_scene_prompt(scene, draft.settings)
+
+        logger.info(
+            "pipeline.compose id=%s provider=%s scene=%s",
+            draft.generation_id,
+            self._provider.name,
+            scene.key,
+        )
+
+        composed = self._provider.generate(
+            ImageRequest(
+                prompt=prompt,
+                # Both anchors: the stylised face we already approved, and the
+                # real one it came from.
+                reference_images=(draft.cartoon_image, draft.photo_data),
+                reference_media_types=("image/png", draft.photo_media_type),
+                output_format="png",
+                aspect_ratio=str(draft.settings.aspect_ratio),
+                label="scene-compose",
+            )
+        )
+        _require_image(composed, "scene image")
+
+        warnings: list[str] = []
+        if len(composed.data) < _MIN_PLAUSIBLE_IMAGE_BYTES:
+            warnings.append(
+                "The returned image is suspiciously small; the provider may have "
+                "returned a placeholder instead of a real generation."
+            )
+
+        result = GenerationResult(
+            generation_id=draft.generation_id,
+            provider=self._provider.name,
+            model=composed.model or draft.model,
+            scene_key=scene.key,
+            # The caption burned onto the image is exactly the spec we sent.
+            caption=scene.caption,
+            settings=draft.settings,
+            cartoon_prompt=draft.cartoon_prompt,
+            scene_prompt=prompt,
+            cartoon_image=draft.cartoon_image,
+            scene_image=composed.data,
+            warnings=tuple(warnings),
+        )
+
+        stored = (
+            self._store.save(result)
+            if persist
+            else StoredGeneration(self._store.root, draft.generation_id)
+        )
+        logger.info(
+            "pipeline.composed id=%s scene_bytes=%d",
+            result.generation_id,
+            len(result.scene_image),
+        )
+        return ComposedGeneration(result=result, stored=stored)
+
+    def compose_draft(
+        self, *, generation_id: str, scene: Scene, persist: bool = True
+    ) -> ComposedGeneration:
+        """Pass 2 for a draft already on disk.
+
+        Raises:
+            UnknownGeneration: if no draft exists for that id.
+        """
+        draft = self._store.load_draft(generation_id)
+        if draft is None:
+            raise UnknownGeneration(generation_id)
+        return self.compose(draft=draft, scene=scene, persist=persist)
+
+    # --- both -----------------------------------------------------------------
 
     def run(
         self,
@@ -56,90 +238,29 @@ class GenerationPipeline:
         settings: CartoonSettings,
         persist: bool = True,
     ) -> PipelineOutcome:
-        """Execute both passes.
+        """Both passes in one shot — the convenience path for API clients.
 
-        Args:
-            photo_data: A validated, normalised photo (see `images.decode_upload`).
-            photo_media_type: Media type of `photo_data`.
-            scene: The story beat to depict.
-            settings: Validated user settings.
-            persist: When False, nothing is written to disk. Tests use this.
+        The interactive UI uses `cartoonify` and `compose` separately so the
+        portrait can be reviewed first.
 
         Raises:
             ProviderError: if either pass fails.
         """
-        generation_id = uuid4().hex
-        warnings: list[str] = []
-
-        cartoon_prompt = build_cartoon_prompt(settings)
-        scene_prompt = build_scene_prompt(scene, settings)
-
-        logger.info(
-            "pipeline.start id=%s provider=%s scene=%s style=%s intensity=%s",
-            generation_id,
-            self._provider.name,
-            scene.key,
-            settings.cartoon_style,
-            settings.cartoon_intensity,
+        draft = self._build_cartoon(
+            photo_data=photo_data,
+            photo_media_type=photo_media_type,
+            settings=settings,
+            generation_id=uuid4().hex,
         )
-
-        cartoon = self._provider.generate(
-            ImageRequest(
-                prompt=cartoon_prompt,
-                reference_images=(photo_data,),
-                reference_media_types=(photo_media_type,),
-                output_format="png",
-                aspect_ratio=str(settings.aspect_ratio),
-                label="cartoonify",
-            )
-        )
-
-        # Both anchors: the stylised face we just made, and the real one.
-        composed = self._provider.generate(
-            ImageRequest(
-                prompt=scene_prompt,
-                reference_images=(cartoon.data, photo_data),
-                reference_media_types=(cartoon.media_type, photo_media_type),
-                output_format="png",
-                aspect_ratio=str(settings.aspect_ratio),
-                label="scene-compose",
-            )
-        )
-
-        if len(composed.data) < 1024:
-            warnings.append(
-                "The returned image is suspiciously small; the provider may have "
-                "returned a placeholder instead of a real generation."
-            )
-
-        result = GenerationResult(
-            generation_id=generation_id,
-            provider=self._provider.name,
-            model=composed.model or "unknown",
-            scene_key=scene.key,
-            # The caption burned onto the image is exactly the spec we sent.
-            caption=scene.caption,
-            cartoon_prompt=cartoon_prompt,
-            scene_prompt=scene_prompt,
-            cartoon_image=_validated(cartoon, warnings, "cartoon portrait"),
-            scene_image=_validated(composed, warnings, "scene image"),
-            warnings=tuple(warnings),
-        )
-
-        stored = (
-            self._store.save(result)
-            if persist
-            else StoredGeneration(self._store.root, generation_id)
-        )
-        logger.info("pipeline.done id=%s bytes=%d", generation_id, len(result.scene_image))
-        return PipelineOutcome(result=result, stored=stored)
+        composed = self.compose(draft=draft, scene=scene, persist=persist)
+        return PipelineOutcome(result=composed.result, stored=composed.stored)
 
 
-def _validated(image: GeneratedImage, warnings: list[str], label: str) -> bytes:
-    """Guard against a provider that returned empty or non-image bytes."""
+def _require_image(image: GeneratedImage, label: str) -> None:
+    """Guard against a provider that returned empty bytes.
+
+    Raising beats shipping: an empty image would be written to disk and served
+    as a successful result.
+    """
     if not image.data:
-        warnings.append(f"The provider returned an empty {label}.")
         raise ValueError(f"Provider returned an empty {label}.")
-    if not image.data.startswith(b"\x89PNG") and not image.data.startswith(b"\xff\xd8"):
-        warnings.append(f"The provider returned a {label} in an unexpected format.")
-    return image.data

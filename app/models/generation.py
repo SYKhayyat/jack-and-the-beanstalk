@@ -4,10 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from app.models.settings import CartoonSettings
+from app.models.settings import CartoonSettings
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,6 +22,7 @@ class GenerationResult:
     model: str
     scene_key: str
     caption: str
+    settings: CartoonSettings
     cartoon_prompt: str
     scene_prompt: str
     cartoon_image: bytes
