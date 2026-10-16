@@ -25,6 +25,7 @@ def make_result(generation_id: str = "abc123") -> GenerationResult:
         model="recording-v1",
         scene_key="planting-seeds",
         caption=CAPTION,
+        settings=CartoonSettings(),
         cartoon_prompt="cartoon prompt",
         scene_prompt="scene prompt",
         cartoon_image=tiny_png_bytes(),
