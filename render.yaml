@@ -37,7 +37,7 @@ services:
         sync: false
 
       - key: GEMINI_MODEL
-        value: gemini-2.5-flash-image
+        value: gemini-3.1-flash-lite-image
 
       - key: MAX_UPLOAD_MB
         value: "10"

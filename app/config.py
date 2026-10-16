@@ -47,7 +47,10 @@ class Settings(BaseSettings):
         description="Google AI Studio API key. Only needed for the gemini provider.",
     )
     gemini_model: str = Field(
-        default="gemini-2.5-flash-image",
+        # Not gemini-2.5-flash-image: Google deprecated it and scheduled
+        # shutdown for 2026-10-02, naming these two as the migration targets.
+        # Lite is the cheaper of the pair; see the README for the trade-off.
+        default="gemini-3.1-flash-lite-image",
         description="Gemini image-capable model id.",
     )
 

@@ -38,34 +38,74 @@ GEMINI_API_KEY=your-key-here
 
 ## Choosing an API key
 
-The assignment asks for a cheap or free option. Recommendation, in order:
+Everything below was checked against vendor pricing pages on **2026-10-16**.
+Prices move; re-check before you rely on them.
 
-| Option | Cost | Why |
-| --- | --- | --- |
-| **Google AI Studio — `gemini-2.5-flash-image`** (default here) | ~**$0.039 per generated image** ($30/1M output image tokens, 1290 tokens per 1K image); input $0.30/1M tokens. Free tier is rate-limited rather than unlimited — check the current limits in AI Studio. | The only cheap option that accepts **reference images together with text in one call**. That single capability is what this app is built on: pass the cartoon self-portrait *and* the original photo into the scene pass, so the face survives being put into a new scene. Get a key at <https://aistudio.google.com/apikey>. |
-| Replicate (`black-forest-labs/flux-kontext-pro`) | ~$5 free trial credit | Good, but a second account, a different SDK, and less predictable identity fidelity. |
-| OpenAI `gpt-image-1` | No free tier, ~$0.04–0.17 per image | Higher quality, but you pay from the first test render. |
+### What actually costs money
 
-At $0.039 per image and two calls per generation, one generation costs about
-**8 cents**. Twenty test generations across several photos is roughly $1.60.
+| Option | Free tier for image generation? | Paid price | Notes |
+| --- | --- | --- | --- |
+| **Google AI Studio — `gemini-3.1-flash-lite-image`** (default here) | **No.** Every Google image model lists its free tier as *Not available*. | ~$0.034 per 1K image (~$0.068 per generation) | The cheapest option that accepts **reference images and text in one call**, which is what this app is built on. |
+| Google — `gemini-3.1-flash-image` (Nano Banana 2) | **No** | ~$0.067 per 1K image | The higher-quality sibling. Swap via `GEMINI_MODEL` if the lite model loses too much likeness. |
+| Replicate — `black-forest-labs/flux-kontext-pro` | A limited number of free runs; the count is **not published** | ~$0.04/MP | Kontext is specifically built for character-consistent editing, so it suits this project well. |
+| OpenAI image models | No | ~$0.03–0.07 per image | No reason to prefer it here. |
 
-If Google changes pricing or the model, `GEMINI_MODEL` is an environment
-variable — a newer model such as `gemini-3.1-flash-image` is a config change,
-not a code change. Note that `gemini-2.5-flash-image` is scheduled for
-retirement on 2027-03-15, which is fine for this project but worth knowing.
+Two corrections worth stating plainly, because the obvious assumptions are wrong:
+
+- **Google's free tier does not cover image generation.** The pricing page's
+  free-tier column reads *Not available* for every image model, while text
+  models read *Free of charge*. You need billing enabled on the API key. The
+  *web UI* at <https://aistudio.google.com> is still free — see below.
+- **Do not use `gemini-2.5-flash-image`.** Google deprecated it and gave a
+  shutdown date of **2026-10-02**, naming `gemini-3.1-flash-image` and
+  `gemini-3.1-flash-lite-image` as the migration targets. This repo defaults to
+  the Lite model, and a test fails if the default ever reverts to the retired
+  one.
+
+At roughly $0.034 per image and two calls per generation, one generation costs
+about **7 cents**. Twenty test generations across several photos is roughly
+$1.40 — comfortably inside a free trial budget.
+
+### Testing your prompts for free, before you pay
+
+You can iterate on this project's prompt strategy without an API key:
+
+1. **Google AI Studio web UI — free, no key, no billing.** Upload a photo,
+   paste the prompt, look at the result. Copy a prompt straight out of this
+   app via the *Show the prompts that were sent* panel in the UI, or from
+   `meta.json`. This is the fastest loop and it costs nothing.
+   Sign in at <https://aistudio.google.com>.
+2. **Cloudflare Workers AI — a free tier that actually covers image editing.**
+   Their docs: *"Our free allocation allows anyone to use a total of 10,000
+   Neurons per day at no charge."* `@cf/black-forest-labs/flux-2-klein-9b`
+   *"supports multi-reference editing capabilities"*, and their pricing table
+   charges per input-image megapixel, which only makes sense if images are
+   accepted. One 1K output plus one 1K reference costs about 1,545 neurons —
+   roughly **6 edited images per day, every day, free**. The catch: Cloudflare
+   publishes no worked example of an image-input request, so expect to spend an
+   afternoon reverse-engineering the request body.
+   <https://developers.cloudflare.com/workers-ai/platform/pricing/>
+3. **Pollinations.ai — cheapest image-editing API.** A keyed, OpenAI-shaped
+   `POST /v1/images/edits`; `black-forest-labs/flux.2-klein-4b` is around
+   0.005 pollen (~$0.005) per image and is *not* paid-only. You register
+   without a card and claim a "Quest Pollen" grant; the amount is variable by
+   policy, so treat it as small but effectively free rather than unlimited.
+   <https://gen.pollinations.ai/image/models>
+
+For the graded checks — several different uploads, both scenes — option 1 is
+enough, and option 2 covers you if you want to test *through this app* without
+spending. Adding either as a third provider is a config change; see
+*Adding a provider*.
 
 ### Limits this app is designed around
 
-- **Maximum 3 reference images per prompt.** The pipeline sends 2 (cartoon
-  portrait + original photo) in the scene pass and 1 in the cartoon pass.
-- **Maximum 7MB per inline image.** Uploads are normalised to JPEG at up to
-  1536px in `images.py`, well under the ceiling.
-- **Supported aspect ratios** are `1:1`, `3:2`, `2:3`, `3:4`, `4:3`, `4:5`,
-  `5:4`, `9:16`, `16:9`, `21:9`. The `AspectRatio` enum offers only values from
-  that list.
-
-The provider boundary below exists so switching is a config change, not a
-rewrite. See *Adding a provider*.
+- **A small number of reference images per prompt.** The pipeline sends 2
+  (cartoon portrait + original photo) in the scene pass and 1 in the cartoon
+  pass, which is within every model's limit.
+- **Around 7MB per inline image.** Uploads are normalised to JPEG at up to
+  1536px in `images.py`, well under that.
+- **Aspect ratios** `1:1`, `3:2`, `2:3`, `3:4`, `4:3`, `4:5`, `5:4`, `9:16`,
+  `16:9`, `21:9`. The `AspectRatio` enum offers only values from that list.
 
 ## Your API key
 
@@ -296,7 +336,7 @@ is the setting times the worker count.
 ## Tests
 
 ```bash
-pytest --cov                       # 177 tests, 98% statement coverage
+pytest --cov                       # 180 tests, 98% statement coverage
 ruff check . && ruff format --check .
 mypy app
 ```
@@ -359,7 +399,7 @@ response cycle.
 | --- | --- | --- |
 | `IMAGE_PROVIDER` | `mock` | `mock` or `gemini` |
 | `GEMINI_API_KEY` | *(empty)* | Required for `gemini` |
-| `GEMINI_MODEL` | `gemini-2.5-flash-image` | Keep it cheap |
+| `GEMINI_MODEL` | `gemini-3.1-flash-lite-image` | Keep it cheap. `gemini-3.1-flash-image` is the higher-quality option. |
 | `APP_ENV` | `development` | `production` raises the log level |
 | `MAX_UPLOAD_MB` | `10` | Enforced before decoding |
 | `GENERATION_TIMEOUT_SECONDS` | `600` | One budget per request: queue + both model calls. Also applied to the provider's HTTP client. |

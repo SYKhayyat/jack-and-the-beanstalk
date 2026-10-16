@@ -1,6 +1,6 @@
 """Google Gemini image provider.
 
-Uses the `google-genai` SDK and the cheap `gemini-2.5-flash-image` model, which
+Uses the `google-genai` SDK and a cheap image-capable Gemini model, which
 accepts reference images alongside text — that is the whole reason this provider
 fits the job: the same call can carry both the uploaded face *and* the cartoon
 self-portrait, so identity can be re-asserted during scene composition instead of
@@ -42,7 +42,7 @@ class GeminiImageProvider(ImageProvider):
     def __init__(
         self,
         api_key: str,
-        model: str = "gemini-2.5-flash-image",
+        model: str = "gemini-3.1-flash-lite-image",
         timeout_seconds: int = 600,
     ) -> None:
         if not api_key.strip():

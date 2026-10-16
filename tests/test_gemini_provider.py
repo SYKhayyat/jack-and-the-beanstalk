@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 
+from app.config import Settings
 from app.services.image_providers.base import (
     ImageRequest,
     ProviderError,
@@ -18,6 +19,10 @@ from app.services.image_providers.base import (
 )
 from app.services.image_providers.gemini import GeminiImageProvider
 from tests.helpers import tiny_png_bytes
+
+# Resolved from settings rather than hardcoded, so renaming the default does not
+# mean updating assertions in several places.
+DEFAULT_SETTINGS_MODEL = Settings(_env_file=None).gemini_model
 
 
 @dataclass
@@ -113,7 +118,7 @@ class TestRequestShaping:
 
         parts = models.calls[0]["contents"]
         assert isinstance(parts[0].inline_data.data, bytes) or parts[0] is not None
-        assert models.calls[0]["model"] == "gemini-2.5-flash-image"
+        assert models.calls[0]["model"] == DEFAULT_SETTINGS_MODEL
 
     def test_prompt_is_sent_as_a_text_part(self) -> None:
         models = FakeModels(image_response())
@@ -141,7 +146,7 @@ class TestResponseHandling:
         result = provider.generate(ImageRequest(prompt="p"))
         assert result.data.startswith(b"\x89PNG")
         assert result.media_type == "image/png"
-        assert result.model == "gemini-2.5-flash-image"
+        assert result.model == DEFAULT_SETTINGS_MODEL
 
     def test_extracts_a_jpeg(self) -> None:
         models = FakeModels(image_response(b"\xff\xd8\xff\xe0rest", "image/jpeg"))
@@ -207,3 +212,27 @@ class TestCostDiscipline:
         with pytest.raises(ProviderError):
             provider.generate(ImageRequest(prompt="p"))
         assert len(models.calls) == 1
+
+
+class TestDefaultModelChoice:
+    def test_default_model_is_not_one_google_has_retired(self) -> None:
+        # Google deprecated gemini-2.5-flash-image and scheduled shutdown for
+        # 2026-10-02. Shipping it as the default would mean the app breaks on
+        # first real use, so the default is pinned by a test rather than by
+        # good intentions.
+        assert "2.5-flash-image" not in DEFAULT_SETTINGS_MODEL
+
+    def test_default_model_is_a_current_image_model(self) -> None:
+        assert "image" in DEFAULT_SETTINGS_MODEL
+
+    def test_config_default_and_provider_default_agree(self) -> None:
+        # One source of truth: whichever model config names is the one used.
+        from app.config import get_settings
+
+        get_settings.cache_clear()
+        try:
+            configured = Settings(_env_file=None).gemini_model
+            provider = GeminiImageProvider(api_key="k")
+            assert provider._model == configured
+        finally:
+            get_settings.cache_clear()
