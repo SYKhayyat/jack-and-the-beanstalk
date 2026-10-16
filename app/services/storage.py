@@ -11,7 +11,7 @@ their results immediately in the same response cycle.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from app.models import CartoonSettings, GenerationResult
@@ -32,6 +32,23 @@ class StoredGeneration:
 
     def path(self, filename: str) -> Path:
         return self.directory / filename
+
+    def read_candidates(self) -> list[bytes]:
+        """Every stored portrait alternative, in order. Candidate 0 is the default."""
+        found = []
+        primary = self.read_image_file("cartoon")
+        if primary is not None:
+            found.append(primary)
+        index = 1
+        while (extra := self.read_image_file(f"candidate-{index}")) is not None:
+            found.append(extra)
+            index += 1
+        return found
+
+    def candidate_url(self, index: int) -> str:
+        """URL for one portrait alternative."""
+        stem = "cartoon" if index == 0 else f"candidate-{index}"
+        return f"/media/{self.generation_id}/{stem}"
 
     def read_image_file(self, stem: str) -> bytes | None:
         """Read `stem.png` or `stem.jpg` if present."""
@@ -62,11 +79,31 @@ class Draft:
     generation_id: str
     settings: CartoonSettings
     cartoon_prompt: str
-    cartoon_image: bytes
+    #: One or more portrait alternatives from the same API call. The first is the
+    #: default; the user may pick another when composing.
+    candidates: tuple[bytes, ...]
     photo_data: bytes
     photo_media_type: str
     provider: str
     model: str
+
+    @property
+    def cartoon_image(self) -> bytes:
+        """The default portrait: candidate zero."""
+        return self.candidates[0]
+
+    def with_candidate(self, index: int) -> Draft:
+        """A view of this draft with a different portrait chosen.
+
+        Raises:
+            IndexError: if the index is out of range, which the route turns
+                into a 422 rather than a confusing downstream failure.
+        """
+        if not 0 <= index < len(self.candidates):
+            raise IndexError(
+                f"candidate {index} out of range; this draft has {len(self.candidates)}"
+            )
+        return replace(self, candidates=(self.candidates[index],))
 
 
 class GenerationStore:
@@ -131,19 +168,22 @@ class GenerationStore:
                 stored.path("draft.json").read_text(encoding="utf-8")
             )
             settings = CartoonSettings.model_validate(payload["settings"])
-            cartoon = stored.read_image_file("cartoon")
             photo = stored.read_image_file("photo")
         except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError):
             return None
 
-        if cartoon is None or photo is None:
+        if photo is None:
+            return None
+
+        candidates = stored.read_candidates()
+        if not candidates:
             return None
 
         return Draft(
             generation_id=generation_id,
             settings=settings,
             cartoon_prompt=str(payload.get("cartoon_prompt", "")),
-            cartoon_image=cartoon,
+            candidates=tuple(candidates),
             photo_data=photo,
             photo_media_type=_media_type_for(photo),
             provider=str(payload.get("provider", "unknown")),
@@ -164,8 +204,12 @@ class GenerationStore:
         return parsed
 
     def read_image(self, generation_id: str, stem: str) -> bytes | None:
-        """Load a stored image by stem ("cartoon" or "scene"), or None."""
-        if not _is_safe_id(generation_id) or stem not in {"cartoon", "scene"}:
+        """Load a stored image by stem, or None.
+
+        Stems are "cartoon", "scene" or "candidate-N" for a draft's extra
+        portrait alternatives.
+        """
+        if not _is_safe_id(generation_id) or not _is_known_stem(stem):
             return None
         return StoredGeneration(self.root, generation_id).read_image_file(stem)
 
@@ -188,6 +232,14 @@ def _filename(stem: str, data: bytes) -> str:
 
 def _media_type_for(data: bytes) -> str:
     return "image/jpeg" if data[:2] == b"\xff\xd8" else "image/png"
+
+
+def _is_known_stem(stem: str) -> bool:
+    """Whitelist stems rather than trusting the URL, since they become filenames."""
+    if stem in {"cartoon", "scene"}:
+        return True
+    prefix, _, digits = stem.partition("-")
+    return prefix == "candidate" and digits.isdigit()
 
 
 def _is_safe_id(generation_id: str) -> bool:

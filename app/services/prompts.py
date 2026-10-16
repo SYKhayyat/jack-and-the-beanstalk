@@ -20,11 +20,13 @@ lever on "does this look like the person".
 from __future__ import annotations
 
 from app.models import CartoonSettings, CartoonStyle, Scene
+from app.models.feedback import RejectionFeedback
 from app.models.settings import (
     ApparentAge,
     AspectRatio,
     GenderPresentation,
     LikenessStrength,
+    PortraitBackground,
     SkinTone,
 )
 
@@ -131,6 +133,31 @@ _SKIN_DESCRIPTIONS: dict[SkinTone, str] = {
     SkinTone.BROWN: "Render the skin a rich brown tone.",
     SkinTone.DEEP_BROWN: "Render the skin a deep brown tone.",
     SkinTone.DEEPEST_BROWN: "Render the skin the deepest rich brown tone.",
+}
+
+# Background descriptions for the portrait pass only. See PortraitBackground
+# for why these never reach the scene prompt.
+_PORTRAIT_BACKGROUNDS: dict[PortraitBackground, str] = {
+    PortraitBackground.PLAIN: (
+        "BACKGROUND: plain and quiet — an even, untextured field of a single "
+        "soft neutral tone. Nothing behind the head, no objects, no pattern, no "
+        "horizon line, no vignette. The face is the only thing in the picture "
+        "that matters."
+    ),
+    PortraitBackground.AS_UPLOADED: (
+        "BACKGROUND: keep the background of the original photograph, simplified "
+        "into the art style but recognisably the same place. Keep the face and "
+        "hairline clearly separated from it."
+    ),
+    PortraitBackground.SOFT_COLOUR: (
+        "BACKGROUND: a soft, out-of-focus wash of one muted colour with a gentle "
+        "gradient. Nothing in it is in focus and nothing is in it is a shape."
+    ),
+    PortraitBackground.STORYBOOK: (
+        "BACKGROUND: a hand-painted storybook backdrop — soft rolling hills, a "
+        "few distant stylised trees and a warm painted sky, all low-contrast and "
+        "clearly behind the figure, leaving the face unobstructed."
+    ),
 }
 
 _LIKENESS_EMPHASIS: dict[LikenessStrength, str] = {
@@ -244,12 +271,28 @@ def _common_character_block(settings: CartoonSettings) -> str:
     )
 
 
-def build_cartoon_prompt(settings: CartoonSettings) -> str:
-    """Prompt for pass 1: stylise the uploaded photo into a cartoon portrait."""
+def build_cartoon_prompt(
+    settings: CartoonSettings,
+    rejection: RejectionFeedback | None = None,
+) -> str:
+    """Prompt for pass 1: stylise the uploaded photo into a cartoon portrait.
+
+    Args:
+        settings: The user's settings.
+        rejection: What was wrong with the previous attempt, if any. Rendered as
+            corrective instructions near the top, where they outrank the general
+            style guidance.
+
+    Note:
+        The previous attempt is deliberately *not* sent as a reference image.
+        Showing a rejected portrait invites the model to converge on its faults
+        rather than move away from them; only the corrections carry over.
+    """
     style_text = _STYLE_DESCRIPTIONS[settings.cartoon_style]
     sections = [
         "TASK: Turn the person in the supplied photograph into a single "
         "character portrait, in the art style described below.",
+        *([rejection.prompt_block()] if rejection and not rejection.is_empty else []),
         settings.identity_directive(),
         _LIKENESS_EMPHASIS[settings.likeness_strength],
         _common_character_block(settings),
@@ -259,8 +302,9 @@ def build_cartoon_prompt(settings: CartoonSettings) -> str:
         f"ART STYLE: {style_text}.",
         "FRAMING: a head-and-shoulders portrait facing the camera, head and face "
         "large and unobstructed in the centre of the frame, eyes fully visible and "
-        "not hidden by hair or shadow, plain simple background that does not compete "
-        "with the face, even flattering light on the face so every feature reads clearly.",
+        "not hidden by hair or shadow, even flattering light on the face so every "
+        "feature reads clearly.",
+        _PORTRAIT_BACKGROUNDS[settings.portrait_background],
         f"COMPOSITION: {_ASPECT_HINTS[settings.aspect_ratio]}.",
         NEGATIVE_PROMPT_TAIL,
     ]

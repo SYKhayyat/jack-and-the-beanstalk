@@ -137,6 +137,10 @@ class OpenAIImageProvider(ImageProvider):
         return True, f"openai ready (model={self._model}, quality={self._quality})"
 
     def generate(self, request: ImageRequest) -> GeneratedImage:
+        return self._extract_images(self._call(request, n=1), expected=1)[0]
+
+    def _call(self, request: ImageRequest, *, n: int) -> object:
+        """Shape the request, send it once, and hand back the raw response."""
         if not request.reference_images:
             raise ProviderError(
                 "The OpenAI provider needs at least one reference image; this "
@@ -156,9 +160,11 @@ class OpenAIImageProvider(ImageProvider):
         ]
 
         logger.info(
-            "openai.generate label=%s refs=%d prompt_chars=%d model=%s quality=%s size=%s",
+            "openai.generate label=%s refs=%d n=%d prompt_chars=%d model=%s "
+            "quality=%s size=%s",
             request.label,
             len(references),
+            n,
             len(request.prompt),
             self._model,
             self._quality,
@@ -177,15 +183,25 @@ class OpenAIImageProvider(ImageProvider):
                 # `input_fidelity` is deliberately omitted: OpenAI documents it
                 # for gpt-image-1 and 1.5 only, and says to omit it for
                 # gpt-image-2 and later. Facial fidelity is carried by the prompt.
-                n=1,
+                n=n,
             )
         except Exception as exc:  # the SDK raises a wide range of exception types
             raise ProviderError(f"OpenAI request failed: {exc}") from exc
 
-        return self._extract_image(response)
+        return response
+
+    def generate_candidates(self, request: ImageRequest, count: int) -> list[GeneratedImage]:
+        """Return `count` alternatives from a single call, via OpenAI's `n`."""
+        if count < 1:
+            raise ValueError("count must be at least 1")
+        return self._extract_images(self._call(request, n=count), expected=count)
 
     def _extract_image(self, response: object) -> GeneratedImage:
-        """Pull the first image out of the response, whatever shape it arrived in."""
+        return self._extract_images(response, expected=1)[0]
+
+    def _extract_images(self, response: object, *, expected: int) -> list[GeneratedImage]:
+        """Pull every image out of the response, whatever shape it arrived in."""
+        found: list[GeneratedImage] = []
         saw_url_only = False
         for item in getattr(response, "data", None) or []:
             encoded = getattr(item, "b64_json", None)
@@ -196,7 +212,10 @@ class OpenAIImageProvider(ImageProvider):
                 raw = base64.b64decode(encoded)
             except (ValueError, TypeError) as exc:
                 raise ProviderError("OpenAI returned undecodable image data.") from exc
-            return GeneratedImage(data=raw, media_type="image/png", model=self._model)
+            found.append(GeneratedImage(data=raw, media_type="image/png", model=self._model))
+
+        if len(found) == expected:
+            return found
 
         if saw_url_only:
             raise ProviderError(
@@ -204,6 +223,12 @@ class OpenAIImageProvider(ImageProvider):
                 "expects base64 output; check that response_format is not being "
                 "overridden to 'url'."
             )
+
+        if found:
+            logger.warning(
+                "openai.returned_fewer_images requested=%d received=%d", expected, len(found)
+            )
+            return found
 
         # Usually a content-policy refusal, which comes back with no image at all.
         raise ProviderError(

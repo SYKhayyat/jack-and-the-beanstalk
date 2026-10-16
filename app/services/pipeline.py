@@ -22,6 +22,7 @@ import logging
 from uuid import uuid4
 
 from app.models import CartoonSettings, GenerationResult, Scene
+from app.models.feedback import RejectionFeedback
 from app.services.image_providers.base import (
     GeneratedImage,
     ImageProvider,
@@ -34,6 +35,7 @@ __all__ = [
     "ComposedGeneration",
     "GenerationPipeline",
     "PipelineOutcome",
+    "UnknownCandidate",
     "UnknownGeneration",
 ]
 
@@ -42,6 +44,18 @@ logger = logging.getLogger(__name__)
 # A real generated image is far bigger than this. Below it, the provider almost
 # certainly returned a placeholder rather than a generation.
 _MIN_PLAUSIBLE_IMAGE_BYTES = 1024
+
+
+class UnknownCandidate(ValueError):
+    """The requested portrait alternative does not exist for that draft."""
+
+    def __init__(self, index: int, available: int) -> None:
+        super().__init__(
+            f"That draft has {available} portrait alternative"
+            f"{'s' if available != 1 else ''}; candidate {index} does not exist."
+        )
+        self.index = index
+        self.available = available
 
 
 class UnknownGeneration(Exception):
@@ -90,6 +104,7 @@ class GenerationPipeline:
         photo_data: bytes,
         photo_media_type: str,
         settings: CartoonSettings,
+        rejection: RejectionFeedback | None = None,
         generation_id: str | None = None,
         persist: bool = True,
     ) -> Draft:
@@ -103,6 +118,7 @@ class GenerationPipeline:
             photo_data=photo_data,
             photo_media_type=photo_media_type,
             settings=settings,
+            rejection=rejection,
             generation_id=generation_id or uuid4().hex,
         )
         if persist:
@@ -115,10 +131,11 @@ class GenerationPipeline:
         photo_data: bytes,
         photo_media_type: str,
         settings: CartoonSettings,
+        rejection: RejectionFeedback | None,
         generation_id: str,
     ) -> Draft:
         """Pass 1's work, returned as a draft without persisting it."""
-        prompt = build_cartoon_prompt(settings)
+        prompt = build_cartoon_prompt(settings, rejection)
 
         logger.info(
             "pipeline.cartoonify id=%s provider=%s style=%s intensity=%s",
@@ -128,7 +145,9 @@ class GenerationPipeline:
             settings.cartoon_intensity,
         )
 
-        cartoon = self._provider.generate(
+        # One API call for the whole set of alternatives. Providers that cannot
+        # do that return one image whatever was asked for.
+        candidates = self._provider.generate_candidates(
             ImageRequest(
                 prompt=prompt,
                 reference_images=(photo_data,),
@@ -136,19 +155,21 @@ class GenerationPipeline:
                 output_format="png",
                 aspect_ratio=str(settings.aspect_ratio),
                 label="cartoonify",
-            )
+            ),
+            count=settings.candidates,
         )
-        _require_image(cartoon, "cartoon portrait")
+        for candidate in candidates:
+            _require_image(candidate, "cartoon portrait")
 
         return Draft(
             generation_id=generation_id,
             settings=settings,
             cartoon_prompt=prompt,
-            cartoon_image=cartoon.data,
+            candidates=tuple(candidate.data for candidate in candidates),
             photo_data=photo_data,
             photo_media_type=photo_media_type,
             provider=self._provider.name,
-            model=cartoon.model or "unknown",
+            model=candidates[0].model or "unknown",
         )
 
     # --- pass 2 ---------------------------------------------------------------
@@ -215,7 +236,12 @@ class GenerationPipeline:
         return ComposedGeneration(result=result, stored=stored)
 
     def compose_draft(
-        self, *, generation_id: str, scene: Scene, persist: bool = True
+        self,
+        *,
+        generation_id: str,
+        scene: Scene,
+        candidate_index: int = 0,
+        persist: bool = True,
     ) -> ComposedGeneration:
         """Pass 2 for a draft already on disk.
 
@@ -225,6 +251,11 @@ class GenerationPipeline:
         draft = self._store.load_draft(generation_id)
         if draft is None:
             raise UnknownGeneration(generation_id)
+        if candidate_index:
+            try:
+                draft = draft.with_candidate(candidate_index)
+            except IndexError as exc:
+                raise UnknownCandidate(candidate_index, len(draft.candidates)) from exc
         return self.compose(draft=draft, scene=scene, persist=persist)
 
     # --- both -----------------------------------------------------------------
@@ -236,6 +267,7 @@ class GenerationPipeline:
         photo_media_type: str,
         scene: Scene,
         settings: CartoonSettings,
+        rejection: RejectionFeedback | None = None,
         persist: bool = True,
     ) -> PipelineOutcome:
         """Both passes in one shot — the convenience path for API clients.
@@ -250,6 +282,7 @@ class GenerationPipeline:
             photo_data=photo_data,
             photo_media_type=photo_media_type,
             settings=settings,
+            rejection=rejection,
             generation_id=uuid4().hex,
         )
         composed = self.compose(draft=draft, scene=scene, persist=persist)

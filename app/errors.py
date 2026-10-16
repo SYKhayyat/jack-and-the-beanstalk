@@ -14,11 +14,14 @@ from fastapi.responses import JSONResponse
 
 from app.services.image_providers.base import ProviderError, ProviderUnavailable
 from app.services.images import InvalidImage
+from app.services.pipeline import UnknownCandidate as _UnknownCandidate
 from app.services.pipeline import UnknownGeneration
 
 __all__ = [
     "AppError",
+    "InvalidRejection",
     "InvalidSettings",
+    "UnknownCandidate",
     "UnknownDraft",
     "UnknownScene",
     "register_exception_handlers",
@@ -39,6 +42,20 @@ class UnknownDraft(AppError):
 
     status_code = 404
     error_code = "unknown_draft"
+
+
+class InvalidRejection(AppError):
+    """A rejection chip that is not one of the allowed values."""
+
+    status_code = 400
+    error_code = "invalid_rejection"
+
+
+class UnknownCandidate(AppError):
+    """The requested portrait alternative does not exist for that draft."""
+
+    status_code = 422
+    error_code = "unknown_candidate"
 
 
 class UnknownScene(AppError):
@@ -94,6 +111,14 @@ def register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=404,
             content={"error": "unknown_draft", "detail": str(exc)},
+        )
+
+    @app.exception_handler(_UnknownCandidate)
+    async def _unknown_candidate(_: Request, exc: _UnknownCandidate) -> JSONResponse:
+        logger.info("app_error unknown_candidate: %s", exc)
+        return JSONResponse(
+            status_code=422,
+            content={"error": "unknown_candidate", "detail": str(exc)},
         )
 
     @app.exception_handler(ProviderUnavailable)

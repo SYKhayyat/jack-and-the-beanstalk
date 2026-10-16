@@ -80,6 +80,23 @@ class ImageProvider(ABC):
         not mutate the input.
         """
 
+    def generate_candidates(self, request: ImageRequest, count: int) -> list[GeneratedImage]:
+        """Generate `count` alternatives, ideally in one API call.
+
+        The default implementation makes a single call and returns one image,
+        even if more were asked for: correctness over pretending. Providers that
+        support an `n` parameter override this and return `count` images from
+        one request.
+
+        Deliberately not implemented as a loop over `generate`. Calling the API
+        once per candidate would cost `count` times as much for the same
+        picture, and looping around a billable call is exactly what this project
+        forbids.
+        """
+        if count < 1:
+            raise ValueError("count must be at least 1")
+        return [self.generate(request)]
+
     def health_check(self) -> tuple[bool, str]:
         """Report whether this provider can currently be used.
 
