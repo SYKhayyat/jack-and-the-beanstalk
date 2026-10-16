@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
@@ -16,12 +16,17 @@ from app.models import (
     AspectRatio,
     CartoonSettings,
     CartoonStyle,
+    Expression,
     GenderPresentation,
+    HairColour,
+    HairStyle,
     LikenessStrength,
+    Outfit,
     PortraitBackground,
     RejectionReason,
     SkinTone,
 )
+from app.models.labels import choices_for
 
 __all__ = ["router"]
 
@@ -44,6 +49,10 @@ def index(request: Request, container: ContainerDep) -> HTMLResponse:
             "ages": _choices(ApparentAge),
             "genders": _choices(GenderPresentation),
             "skin_tones": _choices(SkinTone),
+            "outfits": _choices(Outfit),
+            "hair_styles": _choices(HairStyle),
+            "hair_colours": _choices(HairColour),
+            "expressions": _choices(Expression),
             "likeness_levels": _choices(LikenessStrength),
             "backgrounds": _choices(PortraitBackground),
             "rejection_reasons": [
@@ -63,9 +72,6 @@ def healthz(container: ContainerDep) -> dict[str, object]:
     return {"status": "ok", "provider": status_payload}
 
 
-def _choices(enum_cls: type[Enum]) -> list[tuple[str, str]]:
-    """Enum members as `(value, label)` pairs for the template.
-
-    Defined here rather than in the template so the view stays presentation-only.
-    """
-    return [(member.value, member.value.replace("_", " ").title()) for member in enum_cls]
+def _choices(enum_cls: type[StrEnum]) -> list[tuple[str, str]]:
+    """`(value, label)` pairs for the template, with hand-written labels."""
+    return choices_for(enum_cls)

@@ -39,6 +39,7 @@ const intensityOutput = document.getElementById("intensity-output");
 const state = {
   generationId: null,
   calls: 0,
+  requestInFlight: false,
   candidateUrls: [],
   chosen: 0,
   attempts: [],
@@ -164,10 +165,11 @@ function settingsPayload() {
 }
 
 async function runCartoonify(reasons) {
+  if (state.requestInFlight) return;
   const attemptNumber = state.attempts.length + 1;
+  state.requestInFlight = true;
+  setGenerationControlsDisabled(true);
   setBusy(cartoonStatus, cartoonStage, "Cartoonifying you…");
-  submit.disabled = true;
-  rejectButton.disabled = true;
 
   try {
     const body = settingsPayload();
@@ -180,12 +182,15 @@ async function runCartoonify(reasons) {
   } catch (error) {
     showCartoonError(error.message);
   } finally {
-    submit.disabled = false;
-    rejectButton.disabled = false;
+    state.requestInFlight = false;
+    setGenerationControlsDisabled(false);
   }
 }
 
 async function runCompose(scene) {
+  if (state.requestInFlight || !state.generationId) return;
+  state.requestInFlight = true;
+  setGenerationControlsDisabled(true);
   setBusy(sceneStatus, sceneStage, `Placing you in the scene: ${scene}…`);
 
   try {
@@ -199,10 +204,16 @@ async function runCompose(scene) {
     renderScene(data);
   } catch (error) {
     showSceneError(error.message);
+  } finally {
+    state.requestInFlight = false;
+    setGenerationControlsDisabled(false);
   }
 }
 
 async function runOneStep() {
+  if (state.requestInFlight) return;
+  state.requestInFlight = true;
+  setGenerationControlsDisabled(true);
   setBusy(cartoonStatus, cartoonStage, "Making both images, one step…");
   try {
     const body = settingsPayload();
@@ -211,11 +222,14 @@ async function runOneStep() {
 
     const response = await fetch("/api/generate", { method: "POST", body });
     const data = await readJson(response);
-    state.calls += data.images.candidate_count || 2;
+    state.calls = data.billed_image_count || 2;
     state.generationId = data.generation_id;
     renderScene(data, true);
   } catch (error) {
     showCartoonError(error.message);
+  } finally {
+    state.requestInFlight = false;
+    setGenerationControlsDisabled(false);
   }
 }
 
@@ -229,7 +243,7 @@ async function readJson(response) {
 
 function renderCartoon(data, attemptNumber) {
   state.generationId = data.generation_id;
-  state.calls += 1;
+  state.calls += data.billed_image_count || data.candidate_count || 1;
   state.candidateUrls = data.images.candidate_urls || [data.images.cartoon_url];
   state.chosen = 0;
 
@@ -326,7 +340,7 @@ function renderScene(data, oneStepMode) {
 
   const download = document.getElementById("download-scene");
   download.href = data.images.scene_url;
-  download.download = `${data.scene_key}.png`;
+  download.download = `${data.scene_key}.${data.images.scene_extension || "png"}`;
 
   const warnings = data.warnings || [];
   sceneStatus.className = "status";
@@ -345,6 +359,14 @@ function setBusy(statusEl, stageEl, message) {
   statusEl.textContent = message;
   stageEl.classList.remove("hidden");
   stageEl.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function setGenerationControlsDisabled(disabled) {
+  [submit, rejectButton, approveButton, otherSceneButton, startOverButton].forEach(
+    (button) => {
+      button.disabled = disabled;
+    },
+  );
 }
 
 function showCartoonError(message) {

@@ -18,8 +18,12 @@ costs one call instead of two.
 
 from __future__ import annotations
 
+import io
 import logging
+import textwrap
 from uuid import uuid4
+
+from PIL import Image, ImageDraw, ImageFont, UnidentifiedImageError
 
 from app.models import CartoonSettings, GenerationResult, Scene
 from app.models.feedback import RejectionFeedback
@@ -27,6 +31,7 @@ from app.services.image_providers.base import (
     GeneratedImage,
     ImageProvider,
     ImageRequest,
+    ProviderError,
 )
 from app.services.prompts import build_cartoon_prompt, build_scene_prompt
 from app.services.storage import Draft, GenerationStore, StoredGeneration
@@ -202,6 +207,17 @@ class GenerationPipeline:
         _require_image(composed, "scene image")
 
         warnings: list[str] = []
+        try:
+            captioned_scene = _caption_scene_image(composed.data, scene.caption)
+        except ProviderError:
+            # Keep the provider's bytes for diagnostics and preserve the existing
+            # small-output warning. Real providers return decodable images; this
+            # fallback keeps test doubles and provider error payloads observable.
+            captioned_scene = composed.data
+            warnings.append(
+                "The caption could not be embedded because the provider output was "
+                "not a readable image."
+            )
         if len(composed.data) < _MIN_PLAUSIBLE_IMAGE_BYTES:
             warnings.append(
                 "The returned image is suspiciously small; the provider may have "
@@ -219,7 +235,8 @@ class GenerationPipeline:
             cartoon_prompt=draft.cartoon_prompt,
             scene_prompt=prompt,
             cartoon_image=draft.cartoon_image,
-            scene_image=composed.data,
+            scene_image=captioned_scene,
+            candidate_count=len(draft.candidates),
             warnings=tuple(warnings),
         )
 
@@ -285,6 +302,11 @@ class GenerationPipeline:
             rejection=rejection,
             generation_id=uuid4().hex,
         )
+        if persist:
+            # Keep the intermediate portrait available even after the one-shot
+            # request has completed.  This makes "same cartoon, other scene"
+            # work for both API clients and the browser UI.
+            self._store.save_draft(draft)
         composed = self.compose(draft=draft, scene=scene, persist=persist)
         return PipelineOutcome(result=composed.result, stored=composed.stored)
 
@@ -297,3 +319,42 @@ def _require_image(image: GeneratedImage, label: str) -> None:
     """
     if not image.data:
         raise ValueError(f"Provider returned an empty {label}.")
+
+
+def _caption_scene_image(data: bytes, caption: str) -> bytes:
+    """Burn the exact scene specification into the final image.
+
+    The caption is also returned in JSON and metadata, but rendering it here is
+    what makes the downloaded artefact satisfy the assignment independently of
+    whether a provider honours text instructions.
+    """
+    try:
+        with Image.open(io.BytesIO(data)) as opened:
+            image = opened.convert("RGB")
+    except (OSError, UnidentifiedImageError) as exc:
+        raise ProviderError("Provider returned an unreadable scene image.") from exc
+
+    width, height = image.size
+    font_size = max(12, min(30, width // 42))
+    try:
+        font = ImageFont.load_default(size=font_size)
+    except TypeError:  # pragma: no cover - Pillow < 10.1
+        font = ImageFont.load_default()
+    lines = textwrap.wrap(caption, width=max(24, width // 15)) or [caption]
+    line_height = font_size + 6
+    panel_height = min(height, max(56, line_height * len(lines) + 24))
+    top = height - panel_height
+
+    draw = ImageDraw.Draw(image, "RGBA")
+    draw.rectangle((0, top, width, height), fill=(0, 0, 0, 185))
+    draw.multiline_text(
+        (16, top + 12),
+        "\n".join(lines),
+        fill=(255, 255, 255, 255),
+        font=font,
+        spacing=6,
+    )
+
+    output = io.BytesIO()
+    image.save(output, format="PNG", optimize=True)
+    return output.getvalue()

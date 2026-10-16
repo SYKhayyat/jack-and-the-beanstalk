@@ -397,8 +397,28 @@ pre {
   color: var(--ink-soft);
 }
 
-.one-step { margin-top: 1.25rem; }
-.one-step .field-help { flex-basis: 100%; margin: .2rem 0 0; }
+/* The one-step explanation belongs to the checkbox, not to the button, so it
+   sits tight under it with clear air before the call to action. Both are bigger
+   than the .field-help used for inline hints: this is a decision, not a note. */
+.one-step { margin-top: 1.4rem; }
+
+.one-step-title { font-size: 1rem; font-weight: 550; }
+
+.one-step-help {
+  margin: .35rem 0 0 1.55rem;
+  font-size: .92rem;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  max-width: 46em;
+}
+
+.submit-block { margin-top: 1.75rem; }
+.submit-help {
+  margin: .5rem 0 0;
+  font-size: .92rem;
+  color: var(--ink-soft);
+  max-width: 46em;
+}
 
 @media (max-width: 640px) {
   .compare { grid-template-columns: 1fr; }

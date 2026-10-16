@@ -27,6 +27,7 @@ class GenerationResult:
     scene_prompt: str
     cartoon_image: bytes
     scene_image: bytes
+    candidate_count: int = 1
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     warnings: tuple[str, ...] = field(default_factory=tuple)
 

@@ -15,7 +15,7 @@ from app.main import create_app
 from app.services.pipeline import UnknownGeneration
 from app.services.storage import GenerationStore
 from tests.conftest import generate_form
-from tests.helpers import RecordingProvider, make_photo_bytes, multipart
+from tests.helpers import RecordingProvider, make_photo_bytes, multipart, tiny_png_bytes
 
 
 def cartoonify_form(**overrides: object) -> dict[str, object]:
@@ -185,6 +185,26 @@ class TestOneShotEndpointStillWorks:
         assert payload["images"]["scene_url"]
         assert [r.label for r in provider.requests] == ["cartoonify", "scene-compose"]
 
+    def test_one_shot_draft_can_be_used_for_the_other_scene(
+        self, client: TestClient, provider: RecordingProvider
+    ) -> None:
+        payload = client.post("/api/generate", **multipart(generate_form())).json()
+        response = client.post(
+            "/api/compose",
+            data={
+                "generation_id": payload["generation_id"],
+                "scene": "climbing-beanstalk",
+            },
+        )
+
+        assert response.status_code == 201
+        assert response.json()["scene_key"] == "climbing-beanstalk"
+        assert [request.label for request in provider.requests] == [
+            "cartoonify",
+            "scene-compose",
+            "scene-compose",
+        ]
+
     def test_generate_rejects_an_unknown_scene(self, client: TestClient) -> None:
         response = client.post("/api/generate", **multipart(generate_form(scene="nope")))
         assert response.status_code == 400
@@ -243,3 +263,34 @@ class TestDifferentPhotosStaySeparate:
         # Composing the first must still show the first person's portrait.
         image = client.get(first["images"]["cartoon_url"])
         assert image.status_code == 200
+
+
+class TestCandidatePersistence:
+    def test_all_candidates_round_trip_and_are_served(self, settings: Settings) -> None:
+        from app.models import CartoonSettings
+        from app.services.image_providers.base import GeneratedImage
+        from app.services.pipeline import GenerationPipeline
+
+        class MultiCandidateProvider(RecordingProvider):
+            def generate_candidates(self, request, count):
+                self.requests.append(request)
+                return [
+                    GeneratedImage(
+                        data=tiny_png_bytes(colour=colour),
+                        media_type="image/png",
+                        model="multi-v1",
+                    )
+                    for colour in ("#aa0000", "#00aa00", "#0000aa")[:count]
+                ]
+
+        store = GenerationStore(settings.storage_dir)
+        draft = GenerationPipeline(store=store, provider=MultiCandidateProvider()).cartoonify(
+            photo_data=tiny_png_bytes(),
+            photo_media_type="image/png",
+            settings=CartoonSettings(candidates=3),
+        )
+        loaded = store.load_draft(draft.generation_id)
+
+        assert loaded is not None
+        assert len(loaded.candidates) == 3
+        assert all(store.read_image(draft.generation_id, f"candidate-{i}") for i in (1, 2))

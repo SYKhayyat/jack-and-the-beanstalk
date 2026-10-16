@@ -44,6 +44,7 @@ class Slot:
     def __init__(self, semaphore: asyncio.Semaphore) -> None:
         self._semaphore = semaphore
         self._released = False
+        self._transferred = False
 
     @property
     def released(self) -> bool:
@@ -54,6 +55,10 @@ class Slot:
             return
         self._released = True
         self._semaphore.release()
+
+    def transfer(self) -> None:
+        """Hand release responsibility to work that outlives the request."""
+        self._transferred = True
 
 
 class ConcurrencyGate:
@@ -108,8 +113,17 @@ class ConcurrencyGate:
                 generation it queued for even begins.
         """
         slot = await self._take(timeout=timeout)
-        yield slot
-        slot.release()
+        try:
+            yield slot
+        except BaseException:
+            # Ordinary provider failures and cancellations must not permanently
+            # consume a slot.  A caller may explicitly transfer ownership when
+            # its worker thread is still running after the request times out.
+            if not slot._transferred:
+                slot.release()
+            raise
+        else:
+            slot.release()
 
     async def _take(self, *, timeout: float | None = None) -> Slot:
         semaphore = self._semaphore()

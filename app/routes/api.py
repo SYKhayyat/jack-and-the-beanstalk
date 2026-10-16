@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, TypeVar
 
@@ -36,7 +36,14 @@ from app.models.feedback import (
     RejectionFeedback,
     RejectionReason,
 )
-from app.models.settings import PortraitBackground
+from app.models.labels import choices_for
+from app.models.settings import (
+    Expression,
+    HairColour,
+    HairStyle,
+    Outfit,
+    PortraitBackground,
+)
 from app.routes.settings_form import cartoon_settings_from_form
 from app.services.concurrency import GateTimeout
 from app.services.images import InvalidImage, decode_upload
@@ -84,6 +91,10 @@ def list_settings_options() -> dict[str, object]:
         "skin_tone": _options(SkinTone),
         "likeness_strength": _options(LikenessStrength),
         "portrait_background": _options(PortraitBackground),
+        "outfit": _options(Outfit),
+        "hair_style": _options(HairStyle),
+        "hair_color": _options(HairColour),
+        "expression": _options(Expression),
         "rejection_reasons": [
             {
                 "value": reason.value,
@@ -186,13 +197,26 @@ async def generate(
 
 
 async def _read_upload(photo: UploadFile, container: ContainerDep) -> bytes:
-    """Read and size-check the upload, before anything decodes it."""
-    raw = await photo.read()
-    # Bound the read before decoding: a 5GB stream should not become 5GB of RAM.
-    if len(raw) > container.settings.max_upload_bytes:
-        raise InvalidImage(
-            f"That photo is larger than the {container.settings.max_upload_mb}MB limit."
-        )
+    """Read and size-check the upload, before anything decodes it.
+
+    ``UploadFile.read()`` with no size reads the whole multipart part into RAM.
+    Read in bounded chunks and stop as soon as the configured limit is crossed.
+    """
+    limit = container.settings.max_upload_bytes
+    chunks: list[bytes] = []
+    total = 0
+    while total <= limit:
+        chunk = await photo.read(min(1024 * 1024, limit + 1 - total))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        total += len(chunk)
+        if total > limit:
+            raise InvalidImage(
+                f"That photo is larger than the {container.settings.max_upload_mb}MB limit."
+            )
+
+    raw = b"".join(chunks)
     if not raw:
         raise InvalidImage("No photo was uploaded.")
     return raw
@@ -245,6 +269,7 @@ async def _run_gated(
             try:
                 return await asyncio.wait_for(asyncio.shield(task), timeout=remaining)
             except TimeoutError as exc:
+                slot.transfer()
                 task.add_done_callback(lambda _finished: slot.release())
                 logger.warning("api.%s_timeout budget=%.0fs", label, budget)
                 raise GenerationTimeout(
@@ -277,6 +302,9 @@ def _cartoon_payload(
                 stored.candidate_url(index) for index in range(len(draft.candidates))
             ],
         },
+        "candidate_count": len(draft.candidates),
+        "provider_call_count": 1,
+        "billed_image_count": len(draft.candidates),
         "next_step": {
             "endpoint": "/api/compose",
             "how": "POST generation_id and a scene key to get the scene image.",
@@ -311,9 +339,13 @@ def _result_payload(
         "images": {
             "cartoon_url": urls["cartoon"],
             "scene_url": urls["scene"],
+            "scene_extension": _extension(result.scene_image),
             "cartoon_bytes": len(result.cartoon_image),
             "scene_bytes": len(result.scene_image),
         },
+        "candidate_count": result.candidate_count,
+        "provider_call_count": 2,
+        "billed_image_count": result.candidate_count + 1,
         "prompts": {
             "cartoon": result.cartoon_prompt,
             "scene": result.scene_prompt,
@@ -344,9 +376,11 @@ def _generate_blocking(
     )
 
 
-def _options(enum_cls: type[Enum]) -> list[dict[str, str]]:
-    """Enum values as `{value, label}` pairs for the UI."""
-    return [
-        {"value": member.value, "label": member.value.replace("_", " ").title()}
-        for member in enum_cls
-    ]
+def _options(enum_cls: type[StrEnum]) -> list[dict[str, str]]:
+    """Enum values as `{value, label}` pairs, with the same labels the page uses."""
+    return [{"value": value, "label": label} for value, label in choices_for(enum_cls)]
+
+
+def _extension(data: bytes) -> str:
+    """Return the extension used by the normalized download."""
+    return "jpg" if data.startswith(b"\xff\xd8") else "png"

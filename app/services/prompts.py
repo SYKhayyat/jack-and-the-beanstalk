@@ -24,8 +24,12 @@ from app.models.feedback import RejectionFeedback
 from app.models.settings import (
     ApparentAge,
     AspectRatio,
+    Expression,
     GenderPresentation,
+    HairColour,
+    HairStyle,
     LikenessStrength,
+    Outfit,
     PortraitBackground,
     SkinTone,
 )
@@ -137,6 +141,69 @@ _SKIN_DESCRIPTIONS: dict[SkinTone, str] = {
 
 # Background descriptions for the portrait pass only. See PortraitBackground
 # for why these never reach the scene prompt.
+# Every user setting is a closed set now, so each one needs a sentence for the
+# prompt. Without these the enum value itself would be interpolated, and the
+# model would be asked to wear "storybook_tunic".
+_OUTFIT_DESCRIPTIONS: dict[Outfit, str] = {
+    Outfit.AS_UPLOADED: (
+        "Wear the same clothing as in the photograph, redesigned in the art "
+        "style of the image."
+    ),
+    Outfit.STORYBOOK_TUNIC: (
+        "Wearing a classic storybook tunic and breeches in muted earth tones."
+    ),
+    Outfit.PEASANT: ("Wearing rough, patched peasant clothes in undyed linen and wool."),
+    Outfit.ADVENTURER: (
+        "Wearing an adventurer's tunic with a leather belt and shoulder strap."
+    ),
+    Outfit.SIMPLE_SHIRT: "Wearing a plain shirt and trousers.",
+    Outfit.HOODED_CLOAK: (
+        "Wearing a hooded travelling cloak with the hood down so the face and "
+        "hair are fully visible."
+    ),
+    Outfit.NONE_SPECIFIED: (
+        "Wearing simple, unremarkable clothing that does not draw attention."
+    ),
+}
+
+_HAIR_STYLE_DESCRIPTIONS: dict[HairStyle, str] = {
+    HairStyle.AS_UPLOADED: "Keep the hairstyle exactly as in the photograph.",
+    HairStyle.SHORT: "Short, cropped hair.",
+    HairStyle.BOB: "A chin-length bob.",
+    HairStyle.LONG_STRAIGHT: "Long, straight hair falling past the shoulders.",
+    HairStyle.LONG_WAVY: "Long, wavy hair falling past the shoulders.",
+    HairStyle.CURLY: "Defined curly hair.",
+    HairStyle.COILY: "Tight coiled hair.",
+    HairStyle.PONYTAIL: "Hair pulled back into a ponytail.",
+    HairStyle.BUNS: "Hair gathered into buns.",
+    HairStyle.BALD: "A bald scalp, with no hair.",
+}
+
+_HAIR_COLOUR_DESCRIPTIONS: dict[HairColour, str] = {
+    HairColour.AS_UPLOADED: "Keep the exact hair colour from the photograph.",
+    HairColour.BLACK: "Black hair.",
+    HairColour.DARK_BROWN: "Dark brown hair.",
+    HairColour.BROWN: "Brown hair.",
+    HairColour.AUBURN: "Auburn hair.",
+    HairColour.RED: "Red hair.",
+    HairColour.BLONDE: "Blonde hair.",
+    HairColour.PLATINUM: "Platinum blonde hair.",
+    HairColour.GREY: "Grey hair.",
+    HairColour.WHITE: "White hair.",
+}
+
+_EXPRESSION_DESCRIPTIONS: dict[Expression, str] = {
+    Expression.AS_UPLOADED: "Keep the expression from the photograph.",
+    Expression.FOCUSED_DETERMINED: "A focused, determined expression.",
+    Expression.HAPPY: "A warm, happy expression.",
+    Expression.SERIOUS: "A serious, level expression.",
+    Expression.SURPRISED: "A surprised expression with raised eyebrows.",
+    Expression.CURIOUS: "A curious, attentive expression.",
+    Expression.BRAVE: "A brave, resolute expression.",
+    Expression.WORRIED: "A worried expression with slightly drawn brows.",
+    Expression.GRINNING: "A broad grin showing teeth.",
+}
+
 _PORTRAIT_BACKGROUNDS: dict[PortraitBackground, str] = {
     PortraitBackground.PLAIN: (
         "BACKGROUND: plain and quiet — an even, untextured field of a single "
@@ -262,10 +329,10 @@ def _common_character_block(settings: CartoonSettings) -> str:
             _AGE_DESCRIPTIONS[settings.apparent_age],
             _GENDER_DESCRIPTIONS[settings.gender_presentation],
             _SKIN_DESCRIPTIONS[settings.skin_tone],
-            f"Hair style: {settings.hair_style}.",
-            f"Hair colour: {settings.hair_color}.",
-            f"Wearing {settings.outfit}.",
-            f"Facial expression: {settings.expression}.",
+            _HAIR_STYLE_DESCRIPTIONS[settings.hair_style],
+            _HAIR_COLOUR_DESCRIPTIONS[settings.hair_color],
+            _OUTFIT_DESCRIPTIONS[settings.outfit],
+            _EXPRESSION_DESCRIPTIONS[settings.expression],
             *_accessory_directives(settings),
         ]
     )

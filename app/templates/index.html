@@ -123,26 +123,34 @@
 
         <div class="grid-3">
           <div class="control">
-            <label for="hair_style">Hair style</label>
-            <input type="text" id="hair_style" name="hair_style" value="{{ defaults.hair_style }}"
-                   maxlength="80" placeholder="as_uploaded, or curly, or buzzcut…">
+            <label for="hair_style">Hair</label>
+            <select id="hair_style" name="hair_style">
+              {% for value, label in hair_styles %}<option value="{{ value }}" {% if value == defaults.hair_style %}selected{% endif %}>{{ label }}</option>{% endfor %}
+            </select>
           </div>
           <div class="control">
             <label for="hair_color">Hair colour</label>
-            <input type="text" id="hair_color" name="hair_color" value="{{ defaults.hair_color }}"
-                   maxlength="80" placeholder="as_uploaded, or auburn, or silver…">
+            <select id="hair_color" name="hair_color">
+              {% for value, label in hair_colours %}<option value="{{ value }}" {% if value == defaults.hair_color %}selected{% endif %}>{{ label }}</option>{% endfor %}
+            </select>
           </div>
           <div class="control">
             <label for="expression">Expression</label>
-            <input type="text" id="expression" name="expression" value="{{ defaults.expression }}"
-                   maxlength="80" placeholder="focused and determined">
+            <select id="expression" name="expression">
+              {% for value, label in expressions %}<option value="{{ value }}" {% if value == defaults.expression %}selected{% endif %}>{{ label }}</option>{% endfor %}
+            </select>
           </div>
         </div>
 
         <div class="control">
           <label for="outfit">Outfit</label>
-          <input type="text" id="outfit" name="outfit" value="{{ defaults.outfit }}"
-                 maxlength="160" placeholder="classic storybook tunic and breeches">
+          <select id="outfit" name="outfit">
+            {% for value, label in outfits %}<option value="{{ value }}" {% if value == defaults.outfit %}selected{% endif %}>{{ label }}</option>{% endfor %}
+          </select>
+          <p class="field-help">
+            Pick from the list rather than describing it — see the note on the
+            one-step box below about free text.
+          </p>
         </div>
 
         <div class="checks">
@@ -173,22 +181,22 @@
         </div>
       </fieldset>
 
-      <div class="checks one-step">
+      <div class="one-step">
         <label class="check">
           <input type="checkbox" id="one_step" name="one_step" value="true">
-          <span>Do it in one step — skip the review</span>
+          <span class="one-step-title">Do it in one step — skip the review</span>
         </label>
-        <p class="field-help">
+        <p class="one-step-help">
           Off, you see your cartoon and can change it before paying for the
-          scene. On, you get both images straight away, for 2 calls instead of 1.
+          scene. On, you get both images straight away, for 2 image calls
+          instead of 1.
         </p>
       </div>
 
-      <button type="submit" id="submit" class="primary">Step 1 · Cartoonify me</button>
-      <p class="field-help">
-        This costs one image call. You will see the cartoon before spending
-        anything on the scene.
-      </p>
+      <div class="submit-block">
+        <button type="submit" id="submit" class="primary">Step 1 · Cartoonify me</button>
+        <p class="submit-help">This costs one image call. You will see the cartoon before spending anything on the scene.</p>
+      </div>
     </form>
 
     <!-- Results -->

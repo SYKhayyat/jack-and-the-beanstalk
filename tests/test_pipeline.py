@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from app.models import CartoonSettings, get_scene
 from app.services.images import decode_upload
@@ -125,6 +127,8 @@ class TestResultContents:
 
         assert result.caption == CLIMBING.caption
         assert result.caption in provider.requests[1].prompt
+        with Image.open(io.BytesIO(result.scene_image)) as scene_image:
+            assert scene_image.format == "PNG"
 
     def test_records_provider_and_model(
         self, provider: RecordingProvider, store: GenerationStore, decoded: tuple[bytes, str]

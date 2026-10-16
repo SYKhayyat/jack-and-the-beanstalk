@@ -133,6 +133,7 @@ class GenerationStore:
             "settings": result.settings.model_dump(mode="json"),
             "cartoon_prompt": result.cartoon_prompt,
             "scene_prompt": result.scene_prompt,
+            "candidate_count": result.candidate_count,
             "created_at": result.created_at.isoformat(),
             "warnings": list(result.warnings),
         }
@@ -144,7 +145,9 @@ class GenerationStore:
         stored = StoredGeneration(self.root, draft.generation_id)
         stored.directory.mkdir(parents=True, exist_ok=True)
 
-        stored.path(_filename("cartoon", draft.cartoon_image)).write_bytes(draft.cartoon_image)
+        for index, candidate in enumerate(draft.candidates):
+            stem = "cartoon" if index == 0 else f"candidate-{index}"
+            stored.path(_filename(stem, candidate)).write_bytes(candidate)
         stored.path(_filename("photo", draft.photo_data)).write_bytes(draft.photo_data)
 
         payload = {

@@ -12,6 +12,15 @@ from tests.helpers import make_noisy_photo_bytes, make_photo_bytes
 
 
 class TestAcceptedUploads:
+    def test_animated_webp_keeps_the_first_frame(self) -> None:
+        frames = [Image.new("RGB", (20, 20), colour) for colour in ("#0000ff", "#00ff00")]
+        buffer = io.BytesIO()
+        frames[0].save(buffer, format="WEBP", save_all=True, append_images=frames[1:])
+
+        decoded = decode_upload(buffer.getvalue())
+        with Image.open(io.BytesIO(decoded.data)) as opened:
+            assert opened.getpixel((10, 10))[2] > 200, "first frame should be the blue one"
+
     @pytest.mark.parametrize(
         ("image_format", "expected_type"),
         [("JPEG", "image/jpeg"), ("PNG", "image/jpeg"), ("WEBP", "image/jpeg")],
@@ -47,6 +56,14 @@ class TestAcceptedUploads:
 
 
 class TestRejectedUploads:
+    def test_unsafe_dimensions_are_rejected_before_decode(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Exercise the dimension guard without allocating a genuinely huge image.
+        monkeypatch.setattr("app.services.images.MAX_INPUT_PIXELS", 100)
+        with pytest.raises(InvalidImage, match="too many pixels"):
+            decode_upload(make_photo_bytes(size=(11, 11)))
+
     def test_empty_bytes(self) -> None:
         with pytest.raises(InvalidImage, match="empty"):
             decode_upload(b"")
@@ -71,13 +88,16 @@ class TestRejectedUploads:
         with pytest.raises(InvalidImage, match="Unsupported image format"):
             decode_upload(buffer.getvalue())
 
-    def test_animated_image(self) -> None:
+    def test_animated_image_keeps_the_first_frame(self) -> None:
+        # Someone who uploads an animated GIF of themselves means "here is my
+        # photo". Rejecting was a papercut that taught them nothing.
         frames = [Image.new("RGB", (20, 20), colour) for colour in ("#ff0000", "#00ff00")]
         buffer = io.BytesIO()
         frames[0].save(buffer, format="GIF", save_all=True, append_images=frames[1:])
 
-        with pytest.raises(InvalidImage, match="Animated"):
-            decode_upload(buffer.getvalue())
+        decoded = decode_upload(buffer.getvalue())
+        with Image.open(io.BytesIO(decoded.data)) as opened:
+            assert opened.getpixel((10, 10))[0] > 200, "first frame should be the red one"
 
 
 class TestPrivacy:

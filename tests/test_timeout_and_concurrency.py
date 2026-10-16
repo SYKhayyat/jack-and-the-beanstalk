@@ -19,7 +19,7 @@ from app.config import Settings
 from app.container import build_container
 from app.main import create_app
 from app.services.concurrency import ConcurrencyGate, GateTimeout
-from app.services.image_providers.base import GeneratedImage, ImageProvider
+from app.services.image_providers.base import GeneratedImage, ImageProvider, ProviderError
 from tests.conftest import generate_form
 from tests.helpers import multipart, tiny_png_bytes
 
@@ -194,6 +194,20 @@ class TestServerBusy:
         # Only the one admitted request reached the provider: two pipeline
         # calls, not six. Rejected requests cost the user nothing.
         assert provider.calls == 2
+
+    def test_provider_failure_releases_the_slot(self, settings: Settings) -> None:
+        class FailingProvider(ImageProvider):
+            name = "failing"
+
+            def generate(self, request):
+                raise ProviderError("upstream failure")
+
+        tight = settings.model_copy(update={"max_concurrent_generations": 1})
+        client = app_with(tight, FailingProvider())
+
+        for _ in range(2):
+            response = client.post("/api/generate", **multipart(generate_form()))
+            assert response.status_code == 502
 
     def test_only_one_request_is_admitted(self, saturated_app) -> None:
         app, _ = saturated_app

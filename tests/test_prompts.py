@@ -145,10 +145,10 @@ class TestScenePrompt:
         assert "bone structure" in prompt
 
     def test_character_block_applies(self) -> None:
-        settings = CartoonSettings(hair_color="auburn", outfit="green velvet tunic")
+        settings = CartoonSettings(hair_color="auburn", outfit="adventurer")
         prompt = build_scene_prompt(PLANTING, settings)
-        assert "auburn" in prompt
-        assert "green velvet tunic" in prompt
+        assert "auburn" in prompt.lower()
+        assert "adventurer's tunic" in prompt
 
     def test_style_carries_into_the_scene(self) -> None:
         prompt = build_scene_prompt(

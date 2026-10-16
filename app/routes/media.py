@@ -60,7 +60,12 @@ def _image_response(data: bytes) -> Response:
     return Response(
         content=data,
         media_type=_detect_media_type(data),
-        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+        # These files contain identifiable faces and the URL is a bearer token.
+        # Do not let a shared browser or proxy cache retain them indefinitely.
+        headers={
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
     )
 
 

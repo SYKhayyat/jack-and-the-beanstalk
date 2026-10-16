@@ -9,14 +9,27 @@ which on phone photos routinely carries GPS coordinates of the user's home.
 from __future__ import annotations
 
 import io
+import logging
+import warnings
 from dataclasses import dataclass
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-__all__ = ["MAX_EDGE_PIXELS", "DecodedImage", "InvalidImage", "decode_upload"]
+__all__ = [
+    "MAX_EDGE_PIXELS",
+    "MAX_INPUT_PIXELS",
+    "DecodedImage",
+    "InvalidImage",
+    "decode_upload",
+]
+
+logger = logging.getLogger(__name__)
 
 MAX_EDGE_PIXELS = 1536
-_ALLOWED_FORMATS = {"JPEG", "PNG", "WEBP"}
+# A compressed image can claim enormous dimensions while occupying very little
+# upload space.  Refuse it before Pillow decodes the pixels.
+MAX_INPUT_PIXELS = MAX_EDGE_PIXELS * MAX_EDGE_PIXELS * 4
+_ALLOWED_FORMATS = {"JPEG", "PNG", "WEBP", "GIF"}
 
 
 class InvalidImage(ValueError):
@@ -48,22 +61,34 @@ def decode_upload(raw: bytes) -> DecodedImage:
         raise InvalidImage("The uploaded file was empty.")
 
     try:
-        with Image.open(io.BytesIO(raw)) as opened:
-            if getattr(opened, "is_animated", False):
-                # Checked before the format allow-list so an animated GIF gets
-                # the actionable message instead of "unsupported format".
-                raise InvalidImage(
-                    "Animated images are not supported. Upload a single still photo."
-                )
-            image_format = (opened.format or "").upper()
-            if image_format not in _ALLOWED_FORMATS:
-                raise InvalidImage(
-                    f"Unsupported image format {image_format or 'unknown'!r}. "
-                    "Please upload a JPEG, PNG or WEBP."
-                )
+        with warnings.catch_warnings():
+            # Pillow's default bomb threshold is intentionally much larger than
+            # this app needs. Treat its warning as an exception as an extra guard
+            # for pathological dimensions before any decode occurs.
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(io.BytesIO(raw)) as opened:
+                if opened.width * opened.height > MAX_INPUT_PIXELS:
+                    raise InvalidImage(
+                        "That image has too many pixels. Please upload a smaller photo."
+                    )
+                if getattr(opened, "is_animated", False):
+                    # Take the first frame rather than refusing. Someone who uploads
+                    # an animated GIF of themselves means "here is my photo".
+                    logger.info("upload.animated_using_first_frame frames=%s", opened.n_frames)
+                    opened.seek(0)
+                image_format = (opened.format or "").upper()
+                if image_format not in _ALLOWED_FORMATS:
+                    raise InvalidImage(
+                        f"Unsupported image format {image_format or 'unknown'!r}. "
+                        "Please upload a JPEG, PNG or WEBP."
+                    )
 
-            image = ImageOps.exif_transpose(opened)
-            image = image.convert("RGB")
+                image = ImageOps.exif_transpose(opened)
+                image = image.convert("RGB")
+    except (Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
+        raise InvalidImage(
+            "That image has unsafe dimensions. Please upload a smaller photo."
+        ) from exc
     except UnidentifiedImageError as exc:
         raise InvalidImage(
             "That file is not a readable image. Please upload a JPEG, PNG or WEBP."

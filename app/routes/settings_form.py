@@ -16,8 +16,12 @@ from app.models.settings import (
     ApparentAge,
     AspectRatio,
     CartoonStyle,
+    Expression,
     GenderPresentation,
+    HairColour,
+    HairStyle,
     LikenessStrength,
+    Outfit,
     PortraitBackground,
     SkinTone,
 )
@@ -35,10 +39,10 @@ def cartoon_settings_from_form(
     apparent_age: str = Form(ApparentAge.AS_UPLOADED),
     gender_presentation: str = Form(GenderPresentation.AS_UPLOADED),
     skin_tone: str = Form(SkinTone.AS_UPLOADED),
-    hair_style: str = Form("as_uploaded"),
-    hair_color: str = Form("as_uploaded"),
-    outfit: str = Form("classic storybook tunic and breeches"),
-    expression: str = Form("focused and determined"),
+    hair_style: str = Form(HairStyle.AS_UPLOADED),
+    hair_color: str = Form(HairColour.AS_UPLOADED),
+    outfit: str = Form(Outfit.STORYBOOK_TUNIC),
+    expression: str = Form(Expression.FOCUSED_DETERMINED),
     keep_glasses: bool = Form(True),
     keep_facial_hair: bool = Form(True),
 ) -> CartoonSettings:
@@ -72,6 +76,12 @@ def cartoon_settings_from_form(
             }
         )
     except ValidationError as exc:
-        raise InvalidSettings(
-            f"Invalid cartoon settings: {exc.errors(include_url=False)}"
-        ) from exc
+        # Report field and expectation, never the submitted value. pydantic's
+        # errors() echoes the input back, which would reflect arbitrary visitor
+        # text in the response body; harmless in JSON, but there is no reason to
+        # do it.
+        details = "; ".join(
+            f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
+            for error in exc.errors(include_url=False)
+        )
+        raise InvalidSettings(f"Invalid cartoon settings — {details}") from exc
