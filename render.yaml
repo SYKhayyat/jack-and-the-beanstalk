@@ -1,0 +1,43 @@
+# Render blueprint.
+#
+# `sync: false` means Render creates the variable in the dashboard and prompts
+# you to paste the value. That is the whole point: the key never passes through
+# this file, never lands in git, and never appears in a build log.
+#
+# Deploy with:  render blueprint launch   (or push and use "New > Blueprint")
+
+services:
+  - type: web
+    name: jack-and-the-beanstalk
+    runtime: python
+    plan: free
+    region: oregon
+
+    buildCommand: pip install -r requirements.txt
+    # --factory tells uvicorn to call create_app() itself, which is how the app
+    # receives its settings from the environment.
+    startCommand: uvicorn app.main:create_app --factory --host 0.0.0.0 --port $PORT
+
+    healthCheckPath: /healthz
+
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.8"
+
+      - key: APP_ENV
+        value: production
+
+      # Start on the mock provider so the first deploy boots green with no key.
+      # Switch this to "gemini" in the dashboard once you have added one.
+      - key: IMAGE_PROVIDER
+        value: mock
+
+      # Paste your key into the Render dashboard when prompted.
+      - key: GEMINI_API_KEY
+        sync: false
+
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash-image
+
+      - key: MAX_UPLOAD_MB
+        value: "10"
