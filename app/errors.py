@@ -20,6 +20,7 @@ from app.services.pipeline import UnknownGeneration
 
 __all__ = [
     "AppError",
+    "GenerationRateLimited",
     "InvalidRejection",
     "InvalidSettings",
     "UnknownCandidate",
@@ -95,6 +96,13 @@ class ServerBusy(AppError):
     error_code = "server_busy"
 
 
+class GenerationRateLimited(AppError):
+    """The client has reached the per-minute billable request limit."""
+
+    status_code = 429
+    error_code = "generation_rate_limited"
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     """Attach the app's error contract to a FastAPI instance."""
 
@@ -104,6 +112,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=exc.status_code,
             content={"error": exc.error_code, "detail": str(exc)},
+            headers={"Retry-After": "60"} if isinstance(exc, GenerationRateLimited) else None,
         )
 
     @app.exception_handler(UnknownGeneration)

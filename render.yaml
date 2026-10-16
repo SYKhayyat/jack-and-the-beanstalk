@@ -54,5 +54,8 @@ services:
       - key: MAX_CONCURRENT_GENERATIONS
         value: "2"
 
+      - key: MAX_GENERATIONS_PER_MINUTE
+        value: "12"
+
       - key: STORAGE_DIR
         value: /tmp/jack-and-the-beanstalk-storage

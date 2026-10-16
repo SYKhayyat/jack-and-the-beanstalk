@@ -96,6 +96,12 @@ class Settings(BaseSettings):
             "traffic turns straight into 429s and billable requests."
         ),
     )
+    max_generations_per_minute: int = Field(
+        default=30,
+        ge=1,
+        le=10_000,
+        description="Per-client abuse brake for billable generation requests.",
+    )
 
     storage_dir: Path = Field(
         default=BASE_DIR / "storage",

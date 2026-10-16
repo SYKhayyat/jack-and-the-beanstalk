@@ -16,6 +16,7 @@ from app.services.concurrency import ConcurrencyGate
 from app.services.image_providers.base import ImageProvider
 from app.services.image_providers.registry import build_provider
 from app.services.pipeline import GenerationPipeline
+from app.services.rate_limit import GenerationRateLimiter
 from app.services.storage import GenerationStore
 
 __all__ = ["Container", "build_container"]
@@ -35,6 +36,9 @@ class Container:
     # rate-limited, so without a ceiling a burst of traffic becomes a burst of
     # billable requests and 429s.
     gate: ConcurrencyGate = field(default_factory=lambda: ConcurrencyGate(2))
+    rate_limiter: GenerationRateLimiter = field(
+        default_factory=lambda: GenerationRateLimiter(30)
+    )
 
     def provider_status(self) -> dict[str, object]:
         ok, reason = self.provider.health_check()
@@ -58,4 +62,5 @@ def build_container(settings: Settings, provider: ImageProvider | None = None) -
         store=store,
         pipeline=GenerationPipeline(resolved, store),
         gate=ConcurrencyGate(settings.max_concurrent_generations),
+        rate_limiter=GenerationRateLimiter(settings.max_generations_per_minute),
     )

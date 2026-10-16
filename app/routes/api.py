@@ -9,10 +9,11 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, TypeVar
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile, status
 
 from app.dependencies import ContainerDep
 from app.errors import (
+    GenerationRateLimited,
     GenerationTimeout,
     InvalidRejection,
     ServerBusy,
@@ -109,6 +110,7 @@ def list_settings_options() -> dict[str, object]:
 
 @router.post("/cartoonify", status_code=status.HTTP_201_CREATED)
 async def cartoonify(
+    request: Request,
     container: ContainerDep,
     settings: SettingsDep,
     photo: UploadFile = File(..., description="A photo of a person. JPEG, PNG or WEBP."),
@@ -123,6 +125,7 @@ async def cartoonify(
     Re-calling this with tweaked settings is one call; calling `/api/compose`
     afterwards is the only thing that costs a second call.
     """
+    _check_generation_rate(request, container)
     raw = await _read_upload(photo, container)
     pipeline = container.pipeline
     budget = container.settings.generation_timeout_seconds
@@ -143,6 +146,7 @@ async def cartoonify(
 
 @router.post("/compose", status_code=status.HTTP_201_CREATED)
 async def compose(
+    request: Request,
     container: ContainerDep,
     generation_id: str = Form(
         ..., description="Id returned by /api/cartoonify for the approved portrait."
@@ -157,6 +161,7 @@ async def compose(
     Costs exactly one call, so trying both scenes with the same portrait is
     half the price of re-running the whole pipeline twice.
     """
+    _check_generation_rate(request, container)
     selected = _require_scene(scene)
 
     outcome = await _run_gated(
@@ -171,6 +176,7 @@ async def compose(
 
 @router.post("/generate", status_code=status.HTTP_201_CREATED)
 async def generate(
+    request: Request,
     container: ContainerDep,
     settings: SettingsDep,
     photo: UploadFile = File(..., description="A photo of a person. JPEG, PNG or WEBP."),
@@ -182,6 +188,7 @@ async def generate(
     wasteful, because a portrait you do not like still cost you the scene call.
     Prefer `/api/cartoonify` then `/api/compose`.
     """
+    _check_generation_rate(request, container)
     selected = _require_scene(scene)
     raw = await _read_upload(photo, container)
 
@@ -194,6 +201,15 @@ async def generate(
 
 
 # --- shared helpers ---------------------------------------------------------
+
+
+def _check_generation_rate(request: Request, container: ContainerDep) -> None:
+    client_key = request.client.host if request.client else "unknown"
+    if not container.rate_limiter.allow(client_key):
+        raise GenerationRateLimited(
+            "This client has reached the image-generation limit for this minute. "
+            "Please wait and try again."
+        )
 
 
 async def _read_upload(photo: UploadFile, container: ContainerDep) -> bytes:

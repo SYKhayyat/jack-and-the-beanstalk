@@ -174,6 +174,19 @@ class TestGenerateValidation:
         assert response.status_code == 400
         assert response.json()["error"] == "invalid_image"
 
+    def test_generation_rate_limit_stops_repeat_billable_requests(
+        self, settings: Settings
+    ) -> None:
+        tight = settings.model_copy(update={"max_generations_per_minute": 1})
+        client = TestClient(create_app(tight, provider=StubProvider(b"x")))
+
+        assert client.post("/api/generate", **multipart(generate_form())).status_code == 201
+        response = client.post("/api/generate", **multipart(generate_form()))
+
+        assert response.status_code == 429
+        assert response.json()["error"] == "generation_rate_limited"
+        assert response.headers["retry-after"] == "60"
+
     def test_empty_upload_is_rejected(self, client: TestClient) -> None:
         form = generate_form(photo=("empty.png", b"", "image/png"))
         response = client.post("/api/generate", **multipart(form))
