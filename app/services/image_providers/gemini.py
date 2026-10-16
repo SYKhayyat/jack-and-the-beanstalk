@@ -30,7 +30,12 @@ logger = logging.getLogger(__name__)
 
 
 class GeminiImageProvider(ImageProvider):
-    """Image generation via Google's Gemini image models."""
+    """Image generation via Google's Gemini image models.
+
+    The model accepts at most 3 reference images per prompt; the pipeline sends
+    2 in the scene pass. It also caps inline images at 7MB, which upload
+    normalisation keeps well under.
+    """
 
     name = "gemini"
 

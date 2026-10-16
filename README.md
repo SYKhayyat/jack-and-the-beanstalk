@@ -41,9 +41,27 @@ The assignment asks for a cheap or free option. Recommendation, in order:
 
 | Option | Cost | Why |
 | --- | --- | --- |
-| **Google AI Studio — `gemini-2.5-flash-image`** (default here) | Free tier available; ~$0.30 per 1M input tokens at paid rates | The only cheap option that accepts **reference images together with text in one call**. That single capability is what this app is built on: pass the cartoon self-portrait *and* the original photo into the scene pass, so the face survives being put into a new scene. Get a key at <https://aistudio.google.com/apikey>. |
+| **Google AI Studio — `gemini-2.5-flash-image`** (default here) | ~**$0.039 per generated image** ($30/1M output image tokens, 1290 tokens per 1K image); input $0.30/1M tokens. Free tier is rate-limited rather than unlimited — check the current limits in AI Studio. | The only cheap option that accepts **reference images together with text in one call**. That single capability is what this app is built on: pass the cartoon self-portrait *and* the original photo into the scene pass, so the face survives being put into a new scene. Get a key at <https://aistudio.google.com/apikey>. |
 | Replicate (`black-forest-labs/flux-kontext-pro`) | ~$5 free trial credit | Good, but a second account, a different SDK, and less predictable identity fidelity. |
 | OpenAI `gpt-image-1` | No free tier, ~$0.04–0.17 per image | Higher quality, but you pay from the first test render. |
+
+At $0.039 per image and two calls per generation, one generation costs about
+**8 cents**. Twenty test generations across several photos is roughly $1.60.
+
+If Google changes pricing or the model, `GEMINI_MODEL` is an environment
+variable — a newer model such as `gemini-3.1-flash-image` is a config change,
+not a code change. Note that `gemini-2.5-flash-image` is scheduled for
+retirement on 2027-03-15, which is fine for this project but worth knowing.
+
+### Limits this app is designed around
+
+- **Maximum 3 reference images per prompt.** The pipeline sends 2 (cartoon
+  portrait + original photo) in the scene pass and 1 in the cartoon pass.
+- **Maximum 7MB per inline image.** Uploads are normalised to JPEG at up to
+  1536px in `images.py`, well under the ceiling.
+- **Supported aspect ratios** are `1:1`, `3:2`, `2:3`, `3:4`, `4:3`, `4:5`,
+  `5:4`, `9:16`, `16:9`, `21:9`. The `AspectRatio` enum offers only values from
+  that list.
 
 The provider boundary below exists so switching is a config change, not a
 rewrite. See *Adding a provider*.
