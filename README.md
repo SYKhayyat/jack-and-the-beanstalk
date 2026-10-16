@@ -25,8 +25,9 @@ uvicorn app.main:create_app --factory --reload --port 8000
 
 Open <http://localhost:8000>. With no `.env` at all the app runs in **mock
 mode**: the full UI works, no network calls are made, and images come back as
-clearly-labelled placeholders. That is the right way to build and test the UI
-without spending anything.
+clearly-labelled placeholders. That is the right way to build, test and load
+test the app without spending anything — see
+[Stress testing](#stress-testing-for-free).
 
 To use the real model, set in `.env`:
 
@@ -110,8 +111,10 @@ app/
 ├── models/               # MODEL: scenes, cartoon settings, results
 │   ├── scenes.py         #     the two story beats, as pure data
 │   └── settings.py       #     the user-facing knobs, validated by pydantic
+├── scripts/stress_test.py  # free load testing
 ├── services/             # domain logic, no HTTP
 │   ├── prompts.py        #     the actual product: prompt construction
+│   ├── concurrency.py    #     admission control for generation requests
 │   ├── pipeline.py       #     two-pass orchestration
 │   ├── images.py         #     upload validation, normalisation, EXIF stripping
 │   ├── storage.py        #     artefact persistence
@@ -181,6 +184,19 @@ is only one of it.
 browser can fetch them lazily and the response stays small. Interactive docs are
 at `/docs`.
 
+Errors are mapped in one place (`app/errors.py`), so a failure never leaks a
+stack trace or a key:
+
+| Status | `error` | Meaning |
+| --- | --- | --- |
+| `400` | `unknown_scene` | That scene key is not in the catalogue |
+| `400` | `invalid_image` | Not a readable still image, or too large |
+| `422` | `invalid_settings` | A setting failed validation |
+| `429` | `server_busy` | Every generation slot was busy; nothing was sent to the model |
+| `502` | `provider_error` | The model was reached and failed |
+| `503` | `provider_unavailable` | No usable provider — usually a missing API key |
+| `504` | `generation_timeout` | Ran past the budget; safe to retry |
+
 Example:
 
 ```bash
@@ -208,10 +224,79 @@ Add one `Scene(...)` entry to `SCENES` in `app/models/scenes.py`. The UI, the
 API and the prompts pick it up automatically. Fill in `must_include` and
 `must_avoid` — the negative list is what stops scene-to-scene contamination.
 
+## Stress testing, for free
+
+`scripts/stress_test.py` drives `POST /api/generate` concurrently and reports
+throughput, latency percentiles, the status-code breakdown and the estimated
+spend. Point it at a **mock-mode** instance for unlimited, zero-cost load:
+
+```bash
+# terminal 1 — no API key, no network, no cost
+IMAGE_PROVIDER=mock STORAGE_DIR=/tmp/stress uvicorn app.main:create_app --factory --port 8000
+
+# terminal 2
+python scripts/stress_test.py --url http://localhost:8000 --requests 120 --concurrency 16
+```
+
+```
+  requests       120 in 64.9s  (1.9/s)
+  status codes   {201: 120}
+  latency        p50 6.515s  p95 16.529s  max 21.200s  mean 7.939s
+  cost: $0.00 — mock mode makes no API calls.
+PASS: every request succeeded.
+```
+
+Mock mode still exercises everything that can break in production: upload
+validation, Pillow decoding, the concurrency gate, the two-call pipeline,
+file writes, and the media routes. Each request uploads a distinct synthetic
+image, so nothing is served from a cache.
+
+The p50 above is the gate working, not a bottleneck: 16 requests against
+`MAX_CONCURRENT_GENERATIONS=2` means most of them wait their turn.
+
+Against a real provider it costs roughly `(successful / 2) × $0.039`, so the
+script requires an explicit acknowledgement first:
+
+```bash
+python scripts/stress_test.py --url https://your-app.onrender.com \
+  --requests 12 --concurrency 3 --yes-i-am-using-a-paid-key
+```
+
+Beyond the script, the free AI Studio tier is rate-limited rather than
+unlimited — fine for the several-upload testing described below, not for load
+testing. Use mock mode for load and the free tier for picture quality.
+
+### What the timeout and the gate actually do
+
+`GENERATION_TIMEOUT_SECONDS` (default 600) is **one budget for the whole
+request**, covering the wait for a free slot *and* both model calls. It is not
+one allowance each — otherwise a request could sit in the queue for the full
+timeout and then get another full timeout on top.
+
+| Situation | Result |
+| --- | --- |
+| Generation finishes inside the budget | `201`, with images and the caption |
+| Queues longer than its remaining budget | `429 server_busy`, "retry in a moment", **nothing sent to the model** |
+| Runs past the budget | `504 generation_timeout` |
+
+Two details that are easy to get wrong and expensive to get wrong:
+
+- **The abort is real.** The budget is applied to the provider's HTTP client,
+  so a slow generation aborts its socket. It is not a Python thread left
+  running and burning tokens after the client has gone.
+- **A timed-out request keeps its slot.** The worker outlives the `504`, so it
+  holds the concurrency slot until it genuinely finishes. Releasing at timeout
+  would tell the next request the server was idle while it was still working,
+  and two generations would run against a limit of one.
+
+`MAX_CONCURRENT_GENERATIONS` is per process. Render runs one worker, so it is a
+global limit there; if you ever scale to several workers, the effective limit
+is the setting times the worker count.
+
 ## Tests
 
 ```bash
-pytest --cov                       # 162 tests, 98% statement coverage
+pytest --cov                       # 177 tests, 98% statement coverage
 ruff check . && ruff format --check .
 mypy app
 ```
@@ -277,6 +362,8 @@ response cycle.
 | `GEMINI_MODEL` | `gemini-2.5-flash-image` | Keep it cheap |
 | `APP_ENV` | `development` | `production` raises the log level |
 | `MAX_UPLOAD_MB` | `10` | Enforced before decoding |
+| `GENERATION_TIMEOUT_SECONDS` | `600` | One budget per request: queue + both model calls. Also applied to the provider's HTTP client. |
+| `MAX_CONCURRENT_GENERATIONS` | `2` | Admission control per process. Beyond this, requests queue and then get 429. |
 | `STORAGE_DIR` | `./storage` | Created on startup |
 
 `MAX_UPLOAD_MB` and `STORAGE_DIR` map to `MAX_UPLOAD_MB` and `STORAGE_DIR`.
