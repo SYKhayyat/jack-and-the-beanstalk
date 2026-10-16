@@ -215,3 +215,57 @@ pre {
   .grid-2, .grid-3, .result-grid { grid-template-columns: 1fr; }
   .masthead h1 { font-size: 1.6rem; }
 }
+/* --- two-step review stage ------------------------------------------------ */
+
+.stage-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.stage-head h2 { margin: 0 0 .5rem; }
+
+.cost-pill {
+  margin: 0;
+  padding: .2rem .7rem;
+  border-radius: 999px;
+  background: #f0ede4;
+  border: 1px solid var(--line);
+  font-size: .76rem;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.review {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: start;
+  margin: 1rem 0;
+}
+.review-image {
+  width: 100%;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: #fbfaf7;
+}
+.review-side h3 { margin: 0 0 .4rem; font-size: .95rem; }
+.review-side .field-help { margin-bottom: .9rem; }
+
+.prompt-details { margin-top: 1rem; }
+
+.stage-actions {
+  display: flex;
+  align-items: center;
+  gap: .85rem;
+  flex-wrap: wrap;
+  margin-top: 1.25rem;
+  padding-top: 1.1rem;
+  border-top: 1px solid var(--line);
+}
+.stage-actions .field-help { margin: 0; }
+
+@media (max-width: 640px) {
+  .review { grid-template-columns: 1fr; }
+}

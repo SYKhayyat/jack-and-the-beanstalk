@@ -147,18 +147,62 @@
         </div>
       </fieldset>
 
-      <button type="submit" id="submit" class="primary">Grow the beanstalk…</button>
+      <button type="submit" id="submit" class="primary">Step 1 · Cartoonify me</button>
+      <p class="field-help">
+        This costs one image call. You will see the cartoon before spending
+        anything on the scene.
+      </p>
     </form>
 
     <!-- Results -->
-    <section id="results" class="panel hidden" aria-live="polite">
-      <h2>Your cartoon Jack</h2>
-      <div id="status" class="status"></div>
+    <!-- Stage 1 result: the cartoon portrait, awaiting approval -->
+    <section id="cartoon-stage" class="panel stage hidden" aria-live="polite">
+      <div class="stage-head">
+        <h2>Does this look like you?</h2>
+        <p class="cost-pill" id="cartoon-cost">1 image call used</p>
+      </div>
+      <div id="cartoon-status" class="status"></div>
+
+      <div class="review">
+        <img id="cartoon-image" alt="Your cartoon portrait" class="review-image">
+        <div class="review-side">
+          <h3>Not right yet?</h3>
+          <p class="field-help">
+            Change any setting above — the cartoon level, the style, your hair,
+            the likeness strength — then try again. Each attempt is one image
+            call, and you are not paying for the scene until you approve it.
+          </p>
+          <button type="button" id="retry-cartoon" class="button secondary">
+            Try the cartoon again
+          </button>
+        </div>
+      </div>
+
+      <details class="prompt-details">
+        <summary>Show the prompt that was sent</summary>
+        <pre id="cartoon-prompt"></pre>
+      </details>
+
+      <div class="stage-actions">
+        <button type="button" id="approve-cartoon" class="primary">
+          Approve — put me in the scene
+        </button>
+        <span class="field-help">+1 image call</span>
+      </div>
+    </section>
+
+    <!-- Stage 2 result: the composed scene -->
+    <section id="scene-stage" class="panel stage hidden" aria-live="polite">
+      <div class="stage-head">
+        <h2 id="scene-title">In the story</h2>
+        <p class="cost-pill" id="scene-cost"></p>
+      </div>
+      <div id="scene-status" class="status"></div>
 
       <div class="result-grid">
         <figure>
           <figcaption>Step 1 — your cartoon self</figcaption>
-          <img id="cartoon-image" alt="Your cartoon portrait">
+          <img id="scene-cartoon-image" alt="Your cartoon portrait">
         </figure>
         <figure>
           <figcaption>Step 2 — in the scene</figcaption>
@@ -175,16 +219,24 @@
       <details id="prompt-details">
         <summary>Show the prompts that were sent</summary>
         <h4>Cartoonify pass</h4>
-        <pre id="cartoon-prompt"></pre>
+        <pre id="scene-cartoon-prompt"></pre>
         <h4>Scene pass</h4>
         <pre id="scene-prompt"></pre>
       </details>
 
       <div class="result-actions">
-        <a id="download-scene" class="button" download="jack-and-the-beanstalk.png" href="#">Download scene image</a>
-        <a id="same-person-second-scene" class="button secondary" href="#">Same person, other scene</a>
+        <a id="download-scene" class="button" download="jack-and-the-beanstalk.png" href="#">
+          Download scene image
+        </a>
+        <button type="button" id="other-scene" class="button secondary">
+          Same cartoon, other scene (+1 call)
+        </button>
+        <button type="button" id="start-over" class="button secondary">
+          Start over with a new cartoon
+        </button>
       </div>
     </section>
+
   </main>
 
   <script src="/static/app.js"></script>
