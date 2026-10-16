@@ -158,6 +158,8 @@ spending. Adding either as a third provider is a config change; see
 | --- | --- | --- |
 | Cartoon vs. real | slider 1–10 | 1 is nearly photographic with a hint of line art; 10 is fully graphic. Each step has its own hand-written prompt language rather than a numeric formula. |
 | Cartoon style | 9 options | Manga, anime, western cartoon, Pixar-like, Disney-like, comic book, pencil sketch, watercolour, flat vector. |
+| Portrait background | 4 options | Plain, soft colour, keep the photo's, storybook. Portrait only — see above. |
+| Options to choose from | 1–3 | Several alternatives from one call; 3 costs 3×. |
 | Likeness to the real you | strict / balanced / loose | How hard to hold on to the uploaded face. Strict is the default because "recognisably the same person" is a graded requirement. |
 | Picture shape | 4 options | 1:1, 4:3, 3:4, 16:9. Passed through to the model natively. |
 | Age | as uploaded / child / teen / adult | Apparent age of the cartoon character. |
@@ -199,6 +201,7 @@ app/
 ├── routes/               # CONTROLLER: web.py, api.py, media.py
 ├── templates/index.html  # VIEW
 ├── routes/settings_form.py # settings form fields, shared by both endpoints
+├── models/feedback.py     #     rejection chips and their prompt clauses
 └── static/               # VIEW: style.css, app.js
 ```
 
@@ -249,8 +252,8 @@ is only one of it.
 | `GET` | `/healthz` | Liveness plus the active provider. Never includes secrets. |
 | `GET` | `/api/scenes` | The scene catalogue, with captions |
 | `GET` | `/api/settings-options` | Every enum, the defaults, and the slider limits |
-| `POST` | `/api/cartoonify` | multipart: `photo` + settings → the cartoon portrait (1 call) |
-| `POST` | `/api/compose` | form: `generation_id` + `scene` → the scene image (1 call) |
+| `POST` | `/api/cartoonify` | multipart: `photo` + settings + repeated `reason` chips → the portrait (1 call) |
+| `POST` | `/api/compose` | form: `generation_id` + `scene` + `candidate` → the scene image (1 call) |
 | `POST` | `/api/generate` | multipart: `photo` + `scene` + settings → both, in one shot (2 calls) |
 | `GET` | `/media/{id}/cartoon` | The cartoon portrait |
 | `GET` | `/media/{id}/scene` | The scene image |
@@ -266,9 +269,11 @@ stack trace or a key:
 | Status | `error` | Meaning |
 | --- | --- | --- |
 | `400` | `unknown_scene` | That scene key is not in the catalogue |
+| `400` | `invalid_rejection` | A rejection chip that is not one of the allowed values |
 | `404` | `unknown_draft` | That `generation_id` expired or never existed |
 | `400` | `invalid_image` | Not a readable still image, or too large |
 | `422` | `invalid_settings` | A setting failed validation |
+| `422` | `unknown_candidate` | That portrait alternative does not exist for the draft |
 | `429` | `server_busy` | Every generation slot was busy; nothing was sent to the model |
 | `502` | `provider_error` | The model was reached and failed |
 | `503` | `provider_unavailable` | No usable provider — usually a missing API key |
@@ -339,8 +344,9 @@ Three things fall out of that split, and all three are cost or quality wins:
 
 - **A likeness you dislike costs one call, not two.** Change the intensity, the
   style, the hair, the likeness strength, and retry — the settings panel stays
-  live while you look at the portrait. Only an approved portrait is worth a
-  scene call.
+  live while you look at the portrait. Ticking *why* it was wrong makes the next
+  attempt better rather than merely different. Only an approved portrait is
+  worth a scene call.
 - **Both scenes from one portrait is one call, not two.** That is how "two
   scenes, same story, same person" is meant to be produced.
 - **The judgement happens where it is cheap.** Deciding whether the face
@@ -353,6 +359,63 @@ clients. The UI does not use it.
 The draft — the portrait *and* the normalised photo — is persisted, which is
 what lets pass 2 send both identity anchors without the browser re-uploading
 anything.
+
+### The review stage
+
+After the cartoon portrait is drawn you get to judge it, and there are exactly
+two ways forward:
+
+**Approve** — one call puts the approved portrait into the selected scene.
+
+**Reject** — tick what went wrong. Each checkbox is a fixed, reviewed
+instruction that becomes a correction in the next attempt:
+
+| Chip | What it tells the model |
+| --- | --- |
+| The face changed | Identity outranks style; reproduce the reference's proportions exactly |
+| Wrong art style | Follow the ART STYLE section exactly |
+| Age is wrong | Follow the stated age precisely |
+| Hair is wrong | Follow the stated style, length, part and colour |
+| Skin tone is wrong | Match the stated tone including undertone |
+| Expression is wrong | Read the stated expression literally |
+| Outfit is wrong | Wear exactly the stated outfit |
+| Background is distracting | Put nothing behind the head |
+| Too cartoonish | Pull back towards realism, keep light outlines |
+| Not cartoonish enough | Commit harder to the style |
+| Something else, just different | Vary it; do not repeat the previous result |
+
+**There is no free-text box, on purpose.** Visitor text going into a system
+prompt cannot be validated, cannot be tested for, grows without bound, and is a
+prompt-injection surface. A closed enum has none of those problems, and an
+unknown chip is a 400 rather than being silently dropped. The rejected image is
+also *not* sent back to the model — showing it the attempt it got wrong invites
+it to converge on the faults instead of moving away from them.
+
+Alongside the chips: your photo beside the cartoon, either clickable to enlarge,
+a filmstrip of earlier attempts, and a running count of image calls.
+
+### Portrait background
+
+Applies to the cartoon portrait only, and every variant still demands an
+unobstructed face. It is deliberately not passed to the scene pass: pass 2 draws
+the scene from its own specification, so a background asked for here would not
+survive into the final image, and a busy one in the reference fights the
+caption. If you want to steer the final background, change the scene.
+
+### Options to choose from
+
+One API call can return several alternatives, and you pick rather than re-roll.
+To be clear about the arithmetic: **this is not cheaper per call** — three
+options is three times the cost of one, because you are billed per returned
+image. It is cheaper per *kept* picture only if you would otherwise re-roll
+repeatedly. At $0.00588 a call, three options is $0.018, so it is off by default
+and worth turning on while settling a likeness.
+
+### One-step mode
+
+A checkbox that skips the review and takes the two-call path, for when you
+already know your settings. `POST /api/generate` is that path; the UI uses
+`/api/cartoonify` then `/api/compose` otherwise.
 
 ## Stress testing, for free
 
@@ -426,7 +489,7 @@ is the setting times the worker count.
 ## Tests
 
 ```bash
-pytest --cov                       # 238 tests, 98% statement coverage
+pytest --cov                       # 285 tests, 98% statement coverage
 ruff check . && ruff format --check .
 mypy app
 ```
