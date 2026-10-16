@@ -43,12 +43,32 @@ Prices move; re-check before you rely on them.
 
 ### What actually costs money
 
-| Option | Free tier for image generation? | Paid price | Notes |
+**Read this bit first: one picture costs two API calls.** The pipeline
+cartoonifies the photo (call 1) and then composes the scene (call 2), so 200
+finished pictures is **400 billed image generations**. Every figure below is per
+*call*.
+
+| Model | Per call (1K image) | 200 pictures (400 calls) | Free tier? |
 | --- | --- | --- | --- |
-| **Google AI Studio — `gemini-3.1-flash-lite-image`** (default here) | **No.** Every Google image model lists its free tier as *Not available*. | ~$0.034 per 1K image (~$0.068 per generation) | The cheapest option that accepts **reference images and text in one call**, which is what this app is built on. |
-| Google — `gemini-3.1-flash-image` (Nano Banana 2) | **No** | ~$0.067 per 1K image | The higher-quality sibling. Swap via `GEMINI_MODEL` if the lite model loses too much likeness. |
-| Replicate — `black-forest-labs/flux-kontext-pro` | A limited number of free runs; the count is **not published** | ~$0.04/MP | Kontext is specifically built for character-consistent editing, so it suits this project well. |
-| OpenAI image models | No | ~$0.03–0.07 per image | No reason to prefer it here. |
+| OpenAI `gpt-image-2.5`, `quality=low` | $0.00588 | **~$2.35** | No |
+| Cloudflare `flux-2-klein-9b` | $0.015 / MP | ~$6.00 | **Yes — ~6 images/day free** |
+| **Gemini `gemini-3.1-flash-lite-image`** (default) | **$0.0336** | **~$13.50** | No |
+| Gemini `gemini-nano-banana-2.1` | $0.0336 | ~$13.50 | No |
+| Gemini `gemini-3.1-flash-image` | $0.067 | ~$26.80 | No |
+| Gemini `gemini-3-pro-image` | $0.134 | ~$53.60 | No |
+
+Input tokens add roughly $0.20–0.50 across a whole run — negligible. OpenAI's
+figure is its published calculator output for `low` quality (196 output tokens
+at $30/1M); their page renders medium/high only interactively, so treat the
+higher tiers as unmeasured. OpenAI also warns complex image prompts can take up
+to two minutes.
+
+**There is no free trial credit for the Gemini API any more.** Google's billing
+docs state that the $300 Google Cloud welcome credit *cannot* be used for
+Gemini API or AI Studio usage, and that Gemini API was excluded from the Cloud
+Free Trial from March 2026. Since March 2026, paid Gemini API access is on a
+prepay plan with a **$5 minimum** and credits that are non-refundable and expire
+after a year. For a 200-picture run, prepay about **$15**.
 
 Two corrections worth stating plainly, because the obvious assumptions are wrong:
 
