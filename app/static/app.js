@@ -13,8 +13,6 @@ const preview = document.getElementById("preview");
 const intensity = document.getElementById("cartoon_intensity");
 const intensityOutput = document.getElementById("intensity-output");
 
-let lastScene = null;
-
 /* Live-updating label for the cartoon-vs-real slider. */
 intensity.addEventListener("input", () => {
   intensityOutput.textContent = intensity.value;
@@ -39,7 +37,6 @@ form.addEventListener("submit", async (event) => {
   }
 
   const payload = new FormData(form);
-  lastScene = payload.get("scene");
 
   setBusy("Cartoonifying you, then growing the beanstalk…");
 
@@ -68,19 +65,6 @@ function renderResult(data) {
   download.href = data.images.scene_url;
   download.download = `${data.scene_key}.png`;
 
-  const swap = document.getElementById("same-person-second-scene");
-  swap.href = "#";
-  swap.addEventListener("click", (event) => {
-    event.preventDefault();
-    const other = form.querySelector(`input[name="scene"][value="${data.scene_key}"]`)
-      ? form.querySelector('input[name="scene"]:not(:checked)')
-      : null;
-    if (other) {
-      other.checked = true;
-      form.requestSubmit();
-    }
-  });
-
   const warnings = data.warnings || [];
   statusEl.className = "status";
   statusEl.textContent =
@@ -91,6 +75,19 @@ function renderResult(data) {
   results.classList.remove("hidden");
   results.scrollIntoView({ behavior: "smooth", block: "start" });
 }
+
+/* "Same person, other scene" is bound once, outside the render path, so that
+   generating repeatedly never stacks up duplicate listeners. */
+document.getElementById("same-person-second-scene").addEventListener("click", (event) => {
+  event.preventDefault();
+  const other = form.querySelector('input[name="scene"]:not(:checked)');
+  if (!other || !photoInput.files || !photoInput.files.length) {
+    showError("Choose the other scene to put the same person into it.");
+    return;
+  }
+  other.checked = true;
+  form.requestSubmit();
+});
 
 function setBusy(message) {
   submit.disabled = true;
