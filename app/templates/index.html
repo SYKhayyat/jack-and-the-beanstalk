@@ -69,6 +69,32 @@
             {% for value, label in aspect_ratios %}<option value="{{ value }}" {% if value == defaults.aspect_ratio %}selected{% endif %}>{{ value }} — {{ label }}</option>{% endfor %}
           </select>
         </div>
+
+        <div class="grid-2">
+          <div class="control">
+            <label for="portrait_background">Portrait background</label>
+            <select id="portrait_background" name="portrait_background">
+              {% for value, label in backgrounds %}<option value="{{ value }}" {% if value == defaults.portrait_background %}selected{% endif %}>{{ label }}</option>{% endfor %}
+            </select>
+            <p class="field-help">
+              Applied when drawing your cartoon self, so you can judge it clearly.
+              The final scene always uses the scene's own background.
+            </p>
+          </div>
+
+          <div class="control">
+            <label for="candidates">Options to choose from</label>
+            <select id="candidates" name="candidates">
+              <option value="1" selected>1 — cheapest</option>
+              <option value="2">2 — pick the better one</option>
+              <option value="3">3 — most choice, 3× the cost</option>
+            </select>
+            <p class="field-help">
+              All options come from a single call, but you are billed for each
+              image it returns.
+            </p>
+          </div>
+        </div>
       </fieldset>
 
       <!-- 3. Who the character is -->
@@ -147,6 +173,17 @@
         </div>
       </fieldset>
 
+      <div class="checks one-step">
+        <label class="check">
+          <input type="checkbox" id="one_step" name="one_step" value="true">
+          <span>Do it in one step — skip the review</span>
+        </label>
+        <p class="field-help">
+          Off, you see your cartoon and can change it before paying for the
+          scene. On, you get both images straight away, for 2 calls instead of 1.
+        </p>
+      </div>
+
       <button type="submit" id="submit" class="primary">Step 1 · Cartoonify me</button>
       <p class="field-help">
         This costs one image call. You will see the cartoon before spending
@@ -163,18 +200,55 @@
       </div>
       <div id="cartoon-status" class="status"></div>
 
-      <div class="review">
-        <img id="cartoon-image" alt="Your cartoon portrait" class="review-image">
-        <div class="review-side">
-          <h3>Not right yet?</h3>
-          <p class="field-help">
-            Change any setting above — the cartoon level, the style, your hair,
-            the likeness strength — then try again. Each attempt is one image
-            call, and you are not paying for the scene until you approve it.
-          </p>
-          <button type="button" id="retry-cartoon" class="button secondary">
-            Try the cartoon again
+      <div class="compare">
+        <figure class="compare-side">
+          <figcaption>Your photo</figcaption>
+          <button type="button" class="zoom" data-zoom-src="original" aria-label="Enlarge your photo">
+            <img id="original-thumb" alt="The photo you uploaded">
+            <span class="zoom-hint">click to enlarge</span>
           </button>
+        </figure>
+        <figure class="compare-side">
+          <figcaption>Your cartoon</figcaption>
+          <button type="button" class="zoom" data-zoom="cartoon" aria-label="Enlarge the cartoon">
+            <img id="cartoon-image" alt="Your cartoon portrait">
+            <span class="zoom-hint">click to enlarge</span>
+          </button>
+        </figure>
+      </div>
+
+      <div id="candidate-picker" class="candidates hidden">
+        <h3>Pick one</h3>
+        <div id="candidate-strip" class="candidate-strip"></div>
+      </div>
+
+      <div class="review-actions">
+        <button type="button" id="approve-cartoon" class="primary">
+          Approve — put me in the scene
+        </button>
+        <span class="cost-note">+1 image call</span>
+      </div>
+
+      <div class="reject">
+        <h3>Not right? Tick what went wrong</h3>
+        <p class="field-help">
+          Each tick becomes a correction in the next attempt's prompt. There is
+          no free-text box on purpose — every option here is a tested
+          instruction.
+        </p>
+        <div id="reject-chips" class="chips">
+          {% for reason in rejection_reasons %}
+          <label class="chip">
+            <input type="checkbox" name="reason" value="{{ reason.value }}">
+            <span>{{ reason.label }}</span>
+          </label>
+          {% endfor %}
+        </div>
+        <div class="review-actions">
+          <button type="button" id="reject-cartoon" class="button secondary">
+            Try again with these fixes
+          </button>
+          <span class="cost-note">+1 image call per option chosen</span>
         </div>
       </div>
 
@@ -183,13 +257,18 @@
         <pre id="cartoon-prompt"></pre>
       </details>
 
-      <div class="stage-actions">
-        <button type="button" id="approve-cartoon" class="primary">
-          Approve — put me in the scene
-        </button>
-        <span class="field-help">+1 image call</span>
+      <div id="filmstrip-block" class="filmstrip-block hidden">
+        <h3>Earlier attempts</h3>
+        <div id="filmstrip" class="filmstrip"></div>
       </div>
     </section>
+
+    <!-- Click-to-enlarge viewer -->
+    <dialog id="lightbox" class="lightbox">
+      <button type="button" id="lightbox-close" class="lightbox-close" aria-label="Close">&times;</button>
+      <img id="lightbox-image" alt="Enlarged view">
+      <p id="lightbox-caption" class="lightbox-caption"></p>
+    </dialog>
 
     <!-- Stage 2 result: the composed scene -->
     <section id="scene-stage" class="panel stage hidden" aria-live="polite">
