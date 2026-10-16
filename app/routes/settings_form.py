@@ -18,6 +18,7 @@ from app.models.settings import (
     CartoonStyle,
     GenderPresentation,
     LikenessStrength,
+    PortraitBackground,
     SkinTone,
 )
 
@@ -29,6 +30,8 @@ def cartoon_settings_from_form(
     cartoon_style: str = Form(CartoonStyle.WESTERN_CARTOON),
     likeness_strength: str = Form(LikenessStrength.STRICT),
     aspect_ratio: str = Form(AspectRatio.LANDSCAPE),
+    portrait_background: str = Form(PortraitBackground.PLAIN),
+    candidates: int = Form(1, ge=1, le=3),
     apparent_age: str = Form(ApparentAge.AS_UPLOADED),
     gender_presentation: str = Form(GenderPresentation.AS_UPLOADED),
     skin_tone: str = Form(SkinTone.AS_UPLOADED),
@@ -55,6 +58,8 @@ def cartoon_settings_from_form(
                 "cartoon_style": cartoon_style,
                 "likeness_strength": likeness_strength,
                 "aspect_ratio": aspect_ratio,
+                "portrait_background": portrait_background,
+                "candidates": candidates,
                 "apparent_age": apparent_age,
                 "gender_presentation": gender_presentation,
                 "skin_tone": skin_tone,

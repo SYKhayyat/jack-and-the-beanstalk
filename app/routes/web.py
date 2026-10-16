@@ -10,6 +10,7 @@ from fastapi.templating import Jinja2Templates
 
 from app.dependencies import ContainerDep
 from app.models import (
+    REJECTION_LABELS,
     SCENES,
     ApparentAge,
     AspectRatio,
@@ -17,6 +18,8 @@ from app.models import (
     CartoonStyle,
     GenderPresentation,
     LikenessStrength,
+    PortraitBackground,
+    RejectionReason,
     SkinTone,
 )
 
@@ -42,6 +45,11 @@ def index(request: Request, container: ContainerDep) -> HTMLResponse:
             "genders": _choices(GenderPresentation),
             "skin_tones": _choices(SkinTone),
             "likeness_levels": _choices(LikenessStrength),
+            "backgrounds": _choices(PortraitBackground),
+            "rejection_reasons": [
+                {"value": reason.value, "label": REJECTION_LABELS[reason]}
+                for reason in RejectionReason
+            ],
             "max_upload_mb": container.settings.max_upload_mb,
             "provider": container.provider_status(),
         },

@@ -12,7 +12,12 @@ from typing import Annotated, TypeVar
 from fastapi import APIRouter, Depends, File, Form, UploadFile, status
 
 from app.dependencies import ContainerDep
-from app.errors import GenerationTimeout, ServerBusy, UnknownScene
+from app.errors import (
+    GenerationTimeout,
+    InvalidRejection,
+    ServerBusy,
+    UnknownScene,
+)
 from app.models import (
     SCENES,
     ApparentAge,
@@ -26,6 +31,12 @@ from app.models import (
     SkinTone,
     get_scene,
 )
+from app.models.feedback import (
+    REJECTION_LABELS,
+    RejectionFeedback,
+    RejectionReason,
+)
+from app.models.settings import PortraitBackground
 from app.routes.settings_form import cartoon_settings_from_form
 from app.services.concurrency import GateTimeout
 from app.services.images import InvalidImage, decode_upload
@@ -40,6 +51,7 @@ SettingsDep = Annotated[CartoonSettings, Depends(cartoon_settings_from_form)]
 _T = TypeVar("_T")
 
 __all__ = ["router"]
+
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["api"])
@@ -71,6 +83,14 @@ def list_settings_options() -> dict[str, object]:
         "gender_presentation": _options(GenderPresentation),
         "skin_tone": _options(SkinTone),
         "likeness_strength": _options(LikenessStrength),
+        "portrait_background": _options(PortraitBackground),
+        "rejection_reasons": [
+            {
+                "value": reason.value,
+                "label": REJECTION_LABELS[reason],
+            }
+            for reason in RejectionReason
+        ],
         "defaults": CartoonSettings().model_dump(mode="json"),
         "limits": {"cartoon_intensity": {"min": 1, "max": 10}},
     }
@@ -81,6 +101,10 @@ async def cartoonify(
     container: ContainerDep,
     settings: SettingsDep,
     photo: UploadFile = File(..., description="A photo of a person. JPEG, PNG or WEBP."),
+    # Wire name is the singular "reason" because that is what each checkbox in
+    # the form is called; it simply repeats. Aliased so the Python side can read
+    # as a plural without the two drifting apart.
+    reasons: Annotated[list[str] | None, Form(alias="reason")] = None,
 ) -> dict[str, object]:
     """Pass 1 only: turn the upload into a cartoon portrait and stop there.
 
@@ -91,6 +115,7 @@ async def cartoonify(
     raw = await _read_upload(photo, container)
     pipeline = container.pipeline
     budget = container.settings.generation_timeout_seconds
+    feedback = _rejection_from_form(reasons or [])
 
     def work() -> Draft:
         decoded = decode_upload(raw)
@@ -98,6 +123,7 @@ async def cartoonify(
             photo_data=decoded.data,
             photo_media_type=decoded.media_type,
             settings=settings,
+            rejection=feedback,
         )
 
     draft = await _run_gated(container, work, "cartoonify")
@@ -111,6 +137,9 @@ async def compose(
         ..., description="Id returned by /api/cartoonify for the approved portrait."
     ),
     scene: str = Form(..., description="Scene key, e.g. planting-seeds."),
+    candidate: int = Form(
+        0, ge=0, description="Which portrait alternative to use, counting from 0."
+    ),
 ) -> dict[str, object]:
     """Pass 2 only: put an already-approved cartoon portrait into a scene.
 
@@ -121,7 +150,9 @@ async def compose(
 
     outcome = await _run_gated(
         container,
-        lambda: container.pipeline.compose_draft(generation_id=generation_id, scene=selected),
+        lambda: container.pipeline.compose_draft(
+            generation_id=generation_id, scene=selected, candidate_index=candidate
+        ),
         "compose",
     )
     return _result_payload(outcome.result, outcome.stored, selected.title)
@@ -165,6 +196,23 @@ async def _read_upload(photo: UploadFile, container: ContainerDep) -> bytes:
     if not raw:
         raise InvalidImage("No photo was uploaded.")
     return raw
+
+
+def _rejection_from_form(reasons: list[str]) -> RejectionFeedback:
+    """Validate the rejection chips.
+
+    This is the guard that closed-set feedback buys us: an unknown or malformed
+    chip is a 422, never a line of visitor-supplied text reaching the prompt.
+    Unknown values are reported as 400s rather than silently dropped, so a typo
+    in the client does not look like "no reason given".
+    """
+    try:
+        return RejectionFeedback(reasons=tuple(RejectionReason(r) for r in reasons))
+    except ValueError as exc:
+        raise InvalidRejection(
+            f"Unknown rejection reason in {reasons!r}. "
+            f"Valid values: {', '.join(r.value for r in RejectionReason)}."
+        ) from exc
 
 
 def _require_scene(scene: str) -> Scene:
@@ -214,7 +262,8 @@ def _cartoon_payload(
     budget: float,
 ) -> dict[str, object]:
     """Response for pass 1. Deliberately carries no scene: none has been chosen yet."""
-    urls = StoredGeneration(Path(), draft.generation_id).to_urls()
+    stored = StoredGeneration(Path(), draft.generation_id)
+    urls = stored.to_urls()
     return {
         "generation_id": draft.generation_id,
         "stage": "cartoonified",
@@ -222,7 +271,12 @@ def _cartoon_payload(
         "model": draft.model,
         "settings": settings.model_dump(mode="json"),
         "prompts": {"cartoon": draft.cartoon_prompt},
-        "images": {"cartoon_url": urls["cartoon"]},
+        "images": {
+            "cartoon_url": urls["cartoon"],
+            "candidate_urls": [
+                stored.candidate_url(index) for index in range(len(draft.candidates))
+            ],
+        },
         "next_step": {
             "endpoint": "/api/compose",
             "how": "POST generation_id and a scene key to get the scene image.",

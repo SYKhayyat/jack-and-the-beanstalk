@@ -32,6 +32,18 @@ def get_meta(generation_id: str, store: StoreDep) -> Response:
     return JSONResponse(meta)
 
 
+@router.get("/{generation_id}/candidate-{index}")
+def get_candidate(generation_id: str, index: int, store: StoreDep) -> Response:
+    """Return one portrait alternative from a multi-candidate draft."""
+    if index < 1:
+        return _not_found("Candidate 0 is served as 'cartoon'.")
+    stem = f"candidate-{index}"
+    data = store.read_image(generation_id, stem)
+    if data is None:
+        return _not_found(f"That draft has no candidate {index}.")
+    return _image_response(data)
+
+
 @router.get("/{generation_id}/{stem}")
 def get_image(generation_id: str, stem: str, store: StoreDep) -> Response:
     """Return a stored image. `stem` is either `cartoon` or `scene`."""
@@ -41,7 +53,10 @@ def get_image(generation_id: str, stem: str, store: StoreDep) -> Response:
     data = store.read_image(generation_id, stem)
     if data is None:
         return _not_found("That image no longer exists. Generate it again.")
+    return _image_response(data)
 
+
+def _image_response(data: bytes) -> Response:
     return Response(
         content=data,
         media_type=_detect_media_type(data),
