@@ -4,8 +4,10 @@ Kept behind a small interface so the pipeline never touches paths. In tests it i
 backed by a tmp dir; in production by `settings.storage_dir`.
 
 Note for deployment: Render's filesystem is ephemeral, so artefacts survive only
-until the container is replaced. That is acceptable here because the user sees
-their results immediately in the same response cycle.
+until the container is replaced. A completed one-shot result is returned in the
+same response, but the optional review flow can lose its draft across a restart;
+production deployments that need durable drafts should replace this store with
+object storage or a database.
 """
 
 from __future__ import annotations
