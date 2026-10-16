@@ -8,6 +8,7 @@ stack trace or an API key to the client.
 from __future__ import annotations
 
 import logging
+from uuid import uuid4
 
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
@@ -135,13 +136,18 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(ProviderError)
     async def _provider_failed(_: Request, exc: ProviderError) -> JSONResponse:
-        logger.exception("provider.error: %s", exc)
+        request_id = uuid4().hex[:12]
+        logger.exception("provider.error request_id=%s: %s", request_id, exc)
         return JSONResponse(
             status_code=status.HTTP_502_BAD_GATEWAY,
             content={
                 "error": "provider_error",
-                "detail": str(exc),
-                "hint": "The image provider was reached but failed. Check the logs.",
+                "detail": "The image provider failed while creating the image.",
+                "request_id": request_id,
+                "hint": (
+                    "Try again later. If it keeps failing, give this request id "
+                    "to the operator."
+                ),
             },
         )
 
