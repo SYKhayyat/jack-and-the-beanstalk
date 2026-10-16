@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Jack and the Beanstalk</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="masthead">
+    <h1>Jack and the Beanstalk</h1>
+    <p class="tagline">Upload a photo. Cartoonify it your way. Step into the story.</p>
+    <p class="provider-badge {{ 'provider-live' if provider.using_real_api else 'provider-mock' }}">
+      Provider: <strong>{{ provider.name }}</strong> — {{ provider.reason }}
+      {% if not provider.using_real_api %}
+        <span class="hint">(mock mode: no API calls, placeholder images)</span>
+      {% endif %}
+    </p>
+  </header>
+
+  <main>
+    <form id="generate-form" class="panel" enctype="multipart/form-data">
+      <!-- 1. The photo -->
+      <fieldset>
+        <legend>1. Your photo</legend>
+        <label class="file-label" for="photo">
+          <input type="file" id="photo" name="photo" accept="image/jpeg,image/png,image/webp" required>
+        </label>
+        <p class="field-help">JPEG, PNG or WEBP, up to {{ max_upload_mb }}MB. A clear, front-facing photo works best.</p>
+        <div id="preview-wrap" class="preview-wrap hidden">
+          <img id="preview" alt="Preview of your uploaded photo">
+        </div>
+      </fieldset>
+
+      <!-- 2. How cartoon, and which style -->
+      <fieldset>
+        <legend>2. How cartoon?</legend>
+
+        <div class="control">
+          <label for="cartoon_intensity">
+            Cartoon vs. real
+            <output id="intensity-output" for="cartoon_intensity">{{ defaults.cartoon_intensity }}</output>
+          </label>
+          <input type="range" id="cartoon_intensity" name="cartoon_intensity"
+                 min="1" max="10" value="{{ defaults.cartoon_intensity }}">
+          <p class="scale-hints"><span>1 · nearly real</span><span>10 · fully graphic</span></p>
+        </div>
+
+        <div class="grid-2">
+          <div class="control">
+            <label for="cartoon_style">Cartoon style</label>
+            <select id="cartoon_style" name="cartoon_style">
+              {% for value, label in styles %}<option value="{{ value }}" {% if value == defaults.cartoon_style %}selected{% endif %}>{{ label }}</option>{% endfor %}
+            </select>
+          </div>
+
+          <div class="control">
+            <label for="likeness_strength">Likeness to the real you</label>
+            <select id="likeness_strength" name="likeness_strength">
+              {% for value, label in likeness_levels %}<option value="{{ value }}" {% if value == defaults.likeness_strength %}selected{% endif %}>{{ label }}</option>{% endfor %}
+            </select>
+            <p class="field-help">Strict keeps your face most recognisable.</p>
+          </div>
+        </div>
+
+        <div class="control">
+          <label for="aspect_ratio">Picture shape</label>
+          <select id="aspect_ratio" name="aspect_ratio">
+            {% for value, label in aspect_ratios %}<option value="{{ value }}" {% if value == defaults.aspect_ratio %}selected{% endif %}>{{ value }} — {{ label }}</option>{% endfor %}
+          </select>
+        </div>
+      </fieldset>
+
+      <!-- 3. Who the character is -->
+      <fieldset>
+        <legend>3. Who is the character?</legend>
+        <div class="grid-3">
+          <div class="control">
+            <label for="apparent_age">Age</label>
+            <select id="apparent_age" name="apparent_age">
+              {% for value, label in ages %}<option value="{{ value }}" {% if value == defaults.apparent_age %}selected{% endif %}>{{ label }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="control">
+            <label for="gender_presentation">Gender presentation</label>
+            <select id="gender_presentation" name="gender_presentation">
+              {% for value, label in genders %}<option value="{{ value }}" {% if value == defaults.gender_presentation %}selected{% endif %}>{{ label }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="control">
+            <label for="skin_tone">Skin tone</label>
+            <select id="skin_tone" name="skin_tone">
+              {% for value, label in skin_tones %}<option value="{{ value }}" {% if value == defaults.skin_tone %}selected{% endif %}>{{ label }}</option>{% endfor %}
+            </select>
+          </div>
+        </div>
+
+        <div class="grid-3">
+          <div class="control">
+            <label for="hair_style">Hair style</label>
+            <input type="text" id="hair_style" name="hair_style" value="{{ defaults.hair_style }}"
+                   maxlength="80" placeholder="as_uploaded, or curly, or buzzcut…">
+          </div>
+          <div class="control">
+            <label for="hair_color">Hair colour</label>
+            <input type="text" id="hair_color" name="hair_color" value="{{ defaults.hair_color }}"
+                   maxlength="80" placeholder="as_uploaded, or auburn, or silver…">
+          </div>
+          <div class="control">
+            <label for="expression">Expression</label>
+            <input type="text" id="expression" name="expression" value="{{ defaults.expression }}"
+                   maxlength="80" placeholder="focused and determined">
+          </div>
+        </div>
+
+        <div class="control">
+          <label for="outfit">Outfit</label>
+          <input type="text" id="outfit" name="outfit" value="{{ defaults.outfit }}"
+                 maxlength="160" placeholder="classic storybook tunic and breeches">
+        </div>
+
+        <div class="checks">
+          <label class="check">
+            <input type="hidden" name="keep_glasses" value="false">
+            <input type="checkbox" name="keep_glasses" value="true" {% if defaults.keep_glasses %}checked{% endif %}>
+            <span>Keep my glasses</span>
+          </label>
+          <label class="check">
+            <input type="hidden" name="keep_facial_hair" value="false">
+            <input type="checkbox" name="keep_facial_hair" value="true" {% if defaults.keep_facial_hair %}checked{% endif %}>
+            <span>Keep my facial hair</span>
+          </label>
+        </div>
+      </fieldset>
+
+      <!-- 4. The scene -->
+      <fieldset>
+        <legend>4. Which scene?</legend>
+        <div class="scenes">
+          {% for scene in scenes %}
+          <label class="scene">
+            <input type="radio" name="scene" value="{{ scene.key }}" {% if loop.first %}checked{% endif %}>
+            <span class="scene-title">{{ scene.title }}</span>
+            <span class="scene-caption">{{ scene.caption }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </fieldset>
+
+      <button type="submit" id="submit" class="primary">Grow the beanstalk…</button>
+    </form>
+
+    <!-- Results -->
+    <section id="results" class="panel hidden" aria-live="polite">
+      <h2>Your cartoon Jack</h2>
+      <div id="status" class="status"></div>
+
+      <div class="result-grid">
+        <figure>
+          <figcaption>Step 1 — your cartoon self</figcaption>
+          <img id="cartoon-image" alt="Your cartoon portrait">
+        </figure>
+        <figure>
+          <figcaption>Step 2 — in the scene</figcaption>
+          <img id="scene-image" alt="Your cartoon character in the scene">
+        </figure>
+      </div>
+
+      <div class="caption-block">
+        <h3>Caption</h3>
+        <blockquote id="scene-caption"></blockquote>
+        <p class="field-help">This is the exact scene specification sent to the image model.</p>
+      </div>
+
+      <details id="prompt-details">
+        <summary>Show the prompts that were sent</summary>
+        <h4>Cartoonify pass</h4>
+        <pre id="cartoon-prompt"></pre>
+        <h4>Scene pass</h4>
+        <pre id="scene-prompt"></pre>
+      </details>
+
+      <div class="result-actions">
+        <a id="download-scene" class="button" download="jack-and-the-beanstalk.png" href="#">Download scene image</a>
+        <a id="same-person-second-scene" class="button secondary" href="#">Same person, other scene</a>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
