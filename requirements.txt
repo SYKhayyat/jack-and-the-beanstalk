@@ -9,6 +9,9 @@ pydantic>=2.8,<3.0
 pydantic-settings>=2.4,<3.0
 pillow>=10.4,<12.0
 
-# Image generation backend. Only imported when IMAGE_PROVIDER=gemini, but
-# installed here so a Render deploy has it available the moment you add the key.
+# Image generation backends. Only imported when the matching IMAGE_PROVIDER is
+# selected, but installed here so a Render deploy has them the moment you add
+# a key. OpenAI is the default: gpt-image-2.5-flare at quality=low works out at
+# roughly $0.0059 per call, against $0.034 for the cheapest Gemini image model.
+openai>=2.0,<4.0
 google-genai>=1.0,<2.0

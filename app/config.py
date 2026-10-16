@@ -21,6 +21,7 @@ class ProviderName(StrEnum):
 
     MOCK = "mock"
     GEMINI = "gemini"
+    OPENAI = "openai"
 
 
 class Settings(BaseSettings):
@@ -45,6 +46,22 @@ class Settings(BaseSettings):
     gemini_api_key: str = Field(
         default="",
         description="Google AI Studio API key. Only needed for the gemini provider.",
+    )
+    openai_api_key: str = Field(
+        default="",
+        description="OpenAI API key. Only needed for the openai provider.",
+    )
+    openai_model: str = Field(
+        # Cheapest per-image figure OpenAI publishes: $0.00588 at quality=low.
+        # gpt-image-2 is priced at half the per-token rate ($15 vs $30 per 1M
+        # output tokens) but OpenAI renders its per-image token count only in
+        # an interactive calculator, so it cannot be quoted with confidence.
+        default="gpt-image-2.5-flare",
+        description="OpenAI image model id.",
+    )
+    openai_quality: str = Field(
+        default="low",
+        description="OpenAI image quality tier: low, medium, high, xhigh or max.",
     )
     gemini_model: str = Field(
         # Not gemini-2.5-flash-image: Google deprecated it and scheduled

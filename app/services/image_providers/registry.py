@@ -12,6 +12,7 @@ from app.config import ProviderName, Settings
 from app.services.image_providers.base import ImageProvider, ProviderUnavailable
 from app.services.image_providers.gemini import GeminiImageProvider
 from app.services.image_providers.mock import MockImageProvider
+from app.services.image_providers.openai_provider import OpenAIImageProvider
 
 __all__ = ["KNOWN_PROVIDERS", "build_provider"]
 
@@ -20,6 +21,7 @@ logger = logging.getLogger(__name__)
 KNOWN_PROVIDERS: dict[ProviderName, type[ImageProvider]] = {
     ProviderName.MOCK: MockImageProvider,
     ProviderName.GEMINI: GeminiImageProvider,
+    ProviderName.OPENAI: OpenAIImageProvider,
 }
 
 
@@ -40,6 +42,13 @@ def build_provider(settings: Settings) -> ImageProvider:
         return GeminiImageProvider(
             api_key=settings.gemini_api_key,
             model=settings.gemini_model,
+            timeout_seconds=settings.generation_timeout_seconds,
+        )
+    if provider_cls is OpenAIImageProvider:
+        return OpenAIImageProvider(
+            api_key=settings.openai_api_key,
+            model=settings.openai_model,
+            quality=settings.openai_quality,
             timeout_seconds=settings.generation_timeout_seconds,
         )
     return provider_cls()
