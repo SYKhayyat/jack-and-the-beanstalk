@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from enum import Enum
 
 from fastapi import APIRouter, File, Form, UploadFile, status
 from pydantic import ValidationError
 
-from app.dependencies import PipelineDep, SettingsDep
-from app.errors import InvalidSettings, UnknownScene
+from app.dependencies import ContainerDep
+from app.errors import GenerationTimeout, InvalidSettings, ServerBusy, UnknownScene
 from app.models import (
     SCENES,
     ApparentAge,
@@ -18,10 +19,13 @@ from app.models import (
     CartoonStyle,
     GenderPresentation,
     LikenessStrength,
+    Scene,
     SkinTone,
     get_scene,
 )
+from app.services.concurrency import GateTimeout
 from app.services.images import InvalidImage, decode_upload
+from app.services.pipeline import GenerationPipeline, PipelineOutcome
 
 __all__ = ["router"]
 
@@ -62,8 +66,7 @@ def list_settings_options() -> dict[str, object]:
 
 @router.post("/generate", status_code=status.HTTP_201_CREATED)
 async def generate(
-    pipeline: PipelineDep,
-    settings_config: SettingsDep,
+    container: ContainerDep,
     photo: UploadFile = File(..., description="A photo of a person. JPEG, PNG or WEBP."),
     scene: str = Form(..., description="Scene key, e.g. planting-seeds."),
     cartoon_intensity: int = Form(8, ge=1, le=10),
@@ -120,21 +123,55 @@ async def generate(
 
     raw = await photo.read()
     # Bound the read before decoding: a 5GB stream should not become 5GB of RAM.
-    if len(raw) > settings_config.max_upload_bytes:
+    if len(raw) > container.settings.max_upload_bytes:
         raise InvalidImage(
-            f"That photo is larger than the {settings_config.max_upload_mb}MB limit."
+            f"That photo is larger than the {container.settings.max_upload_mb}MB limit."
         )
     if not raw:
         raise InvalidImage("No photo was uploaded.")
 
-    decoded = decode_upload(raw)
+    # Image decoding and both model calls are blocking and CPU- or
+    # network-bound. Running them on the event loop would freeze every other
+    # request for the duration, so they go to a worker thread where a timeout
+    # can be applied and the server stays responsive.
+    #
+    # The ceiling is one budget for the whole request: queueing for a slot and
+    # generating share it. Otherwise a request could wait the full timeout in
+    # the queue and then get another full timeout to generate, which is not what
+    # "this request gets at most N seconds" means.
+    budget = container.settings.generation_timeout_seconds
+    deadline = asyncio.get_running_loop().time() + budget
 
-    outcome = pipeline.run(
-        photo_data=decoded.data,
-        photo_media_type=decoded.media_type,
-        scene=selected,
-        settings=cartoon_settings,
-    )
+    try:
+        async with container.gate.lease(timeout=budget) as slot:
+            task = asyncio.create_task(
+                asyncio.to_thread(
+                    _generate_blocking,
+                    container.pipeline,
+                    raw,
+                    selected,
+                    cartoon_settings,
+                )
+            )
+            remaining = max(0.0, deadline - asyncio.get_running_loop().time())
+            try:
+                # shield, so a timeout does not cancel the worker: aborting the
+                # socket belongs to the provider's own HTTP timeout.
+                outcome = await asyncio.wait_for(asyncio.shield(task), timeout=remaining)
+            except TimeoutError as exc:
+                # The worker outlives this response, so it keeps the slot and
+                # gives it back when it actually finishes. Releasing here would
+                # tell the next request the server is idle when it is not.
+                task.add_done_callback(lambda _finished: slot.release())
+                logger.warning("api.generate_timeout budget=%.0fs", budget)
+                raise GenerationTimeout(
+                    f"Generation did not finish within {budget:.0f} seconds. "
+                    "The image model was slower than expected — try again, or use "
+                    "a simpler style."
+                ) from exc
+    except GateTimeout as exc:
+        raise ServerBusy(str(exc)) from exc
+
     result = outcome.result
     urls = outcome.stored.to_urls()
 
@@ -168,6 +205,26 @@ async def generate(
         "warnings": list(result.warnings),
         "meta_url": urls["meta"],
     }
+
+
+def _generate_blocking(
+    pipeline: GenerationPipeline,
+    raw_upload: bytes,
+    scene: Scene,
+    settings: CartoonSettings,
+) -> PipelineOutcome:
+    """The blocking half of `/api/generate`.
+
+    Runs on a worker thread: Pillow decoding is CPU-bound and the two model
+    calls are network-bound, and neither should ever sit on the event loop.
+    """
+    decoded = decode_upload(raw_upload)
+    return pipeline.run(
+        photo_data=decoded.data,
+        photo_media_type=decoded.media_type,
+        scene=scene,
+        settings=settings,
+    )
 
 
 def _options(enum_cls: type[Enum]) -> list[dict[str, str]]:

@@ -46,6 +46,28 @@ class InvalidSettings(AppError):
     error_code = "invalid_settings"
 
 
+class GenerationTimeout(AppError):
+    """A generation ran past the configured wall-clock ceiling.
+
+    504 rather than 500: the server is fine, the upstream work simply did not
+    finish in time. Safe to retry, and nothing partial is served.
+    """
+
+    status_code = 504
+    error_code = "generation_timeout"
+
+
+class ServerBusy(AppError):
+    """Every generation slot was occupied, so this request was not started.
+
+    429 with a Retry-After hint. Nothing was sent to the image model, so this
+    costs the user nothing.
+    """
+
+    status_code = 429
+    error_code = "server_busy"
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     """Attach the app's error contract to a FastAPI instance."""
 

@@ -54,6 +54,28 @@ class Settings(BaseSettings):
     # --- app ---
     app_env: str = Field(default="development")
     max_upload_mb: int = Field(default=10, ge=1, le=50)
+    generation_timeout_seconds: int = Field(
+        default=600,
+        # No floor on purpose: this is the operator's control, and a test that
+        # asserts the timeout fires should not have to wait minutes to do it.
+        ge=1,
+        le=3600,
+        description=(
+            "Wall-clock ceiling for one /api/generate request, covering upload "
+            "decoding and both model calls. Also applied to the provider's HTTP "
+            "client so an in-flight request is actually aborted, not just abandoned."
+        ),
+    )
+    max_concurrent_generations: int = Field(
+        default=2,
+        ge=1,
+        le=64,
+        description=(
+            "How many generations may run at once per process. Image models are "
+            "slow and rate-limited: without this, load testing or a burst of "
+            "traffic turns straight into 429s and billable requests."
+        ),
+    )
 
     storage_dir: Path = Field(
         default=BASE_DIR / "storage",

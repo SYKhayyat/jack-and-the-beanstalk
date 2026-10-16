@@ -39,7 +39,12 @@ class GeminiImageProvider(ImageProvider):
 
     name = "gemini"
 
-    def __init__(self, api_key: str, model: str = "gemini-2.5-flash-image") -> None:
+    def __init__(
+        self,
+        api_key: str,
+        model: str = "gemini-2.5-flash-image",
+        timeout_seconds: int = 600,
+    ) -> None:
         if not api_key.strip():
             raise ProviderUnavailable(
                 "GEMINI_API_KEY is not set. Get a free key at "
@@ -47,13 +52,20 @@ class GeminiImageProvider(ImageProvider):
             )
         try:
             from google import genai
+            from google.genai import types
         except ImportError as exc:  # pragma: no cover - depends on install extras
             raise ProviderUnavailable(
                 "The 'google-genai' package is not installed. Run: pip install google-genai"
             ) from exc
 
         self._model = model
-        self._client = genai.Client(api_key=api_key)
+        # The timeout goes on the HTTP client, not just the request, so a slow
+        # generation genuinely aborts the socket instead of leaving a thread
+        # burning tokens in the background.
+        self._client = genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(timeout=timeout_seconds * 1000),
+        )
         self._genai = genai
 
     def health_check(self) -> tuple[bool, str]:

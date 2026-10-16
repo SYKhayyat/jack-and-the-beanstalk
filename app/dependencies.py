@@ -10,17 +10,10 @@ from typing import Annotated, cast
 
 from fastapi import Depends, Request
 
-from app.config import Settings
 from app.container import Container
-from app.services.pipeline import GenerationPipeline
 from app.services.storage import GenerationStore
 
-__all__ = [
-    "ContainerDep",
-    "PipelineDep",
-    "SettingsDep",
-    "StoreDep",
-]
+__all__ = ["ContainerDep", "StoreDep"]
 
 
 def get_container(request: Request) -> Container:
@@ -31,18 +24,8 @@ def get_container(request: Request) -> Container:
 ContainerDep = Annotated[Container, Depends(get_container)]
 
 
-def get_app_settings(container: ContainerDep) -> Settings:
-    return container.settings
-
-
-def get_pipeline(container: ContainerDep) -> GenerationPipeline:
-    return container.pipeline
-
-
 def get_store(container: ContainerDep) -> GenerationStore:
     return container.store
 
 
-SettingsDep = Annotated[Settings, Depends(get_app_settings)]
-PipelineDep = Annotated[GenerationPipeline, Depends(get_pipeline)]
 StoreDep = Annotated[GenerationStore, Depends(get_store)]

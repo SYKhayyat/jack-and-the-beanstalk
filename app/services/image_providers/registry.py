@@ -38,6 +38,8 @@ def build_provider(settings: Settings) -> ImageProvider:
 
     if provider_cls is GeminiImageProvider:
         return GeminiImageProvider(
-            api_key=settings.gemini_api_key, model=settings.gemini_model
+            api_key=settings.gemini_api_key,
+            model=settings.gemini_model,
+            timeout_seconds=settings.generation_timeout_seconds,
         )
     return provider_cls()

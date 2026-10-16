@@ -9,9 +9,10 @@ pipeline is a change here and nowhere else.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from app.config import Settings
+from app.services.concurrency import ConcurrencyGate
 from app.services.image_providers.base import ImageProvider
 from app.services.image_providers.registry import build_provider
 from app.services.pipeline import GenerationPipeline
@@ -30,6 +31,10 @@ class Container:
     provider: ImageProvider
     store: GenerationStore
     pipeline: GenerationPipeline
+    # Bounds concurrent generations per process. Image models are slow and
+    # rate-limited, so without a ceiling a burst of traffic becomes a burst of
+    # billable requests and 429s.
+    gate: ConcurrencyGate = field(default_factory=lambda: ConcurrencyGate(2))
 
     def provider_status(self) -> dict[str, object]:
         ok, reason = self.provider.health_check()
@@ -38,6 +43,7 @@ class Container:
             "ready": ok,
             "reason": reason,
             "using_real_api": self.provider.name != "mock",
+            "max_concurrent_generations": self.gate.limit,
         }
 
 
@@ -51,4 +57,5 @@ def build_container(settings: Settings, provider: ImageProvider | None = None) -
         provider=resolved,
         store=store,
         pipeline=GenerationPipeline(resolved, store),
+        gate=ConcurrencyGate(settings.max_concurrent_generations),
     )
