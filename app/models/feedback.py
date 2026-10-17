@@ -19,6 +19,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.prompt_data import prompt_text
+
 __all__ = [
     "REJECTION_CLAUSES",
     "REJECTION_LABELS",
@@ -44,56 +46,10 @@ class RejectionReason(StrEnum):
 
 
 # One corrective clause per reason. Written as instructions to the model, and
-# deliberately specific: "try again" teaches the model nothing.
+# deliberately specific: "try again" teaches the model nothing. The wording
+# lives in prompts.toml; the enum above is the contract it must cover.
 REJECTION_CLAUSES: dict[RejectionReason, str] = {
-    RejectionReason.FACE_CHANGED: (
-        "The previous attempt did not look like the person. Identity outranks "
-        "style this time: reproduce the reference's proportions exactly — the "
-        "skull shape, jaw width, distance between the eyes, size and angle of "
-        "the nose, mouth width and lip shape, brow thickness, forehead height "
-        "and hairline — and resist any stylisation that would alter them."
-    ),
-    RejectionReason.STYLE_WRONG: (
-        "The previous attempt was in the wrong art style. Follow the ART STYLE "
-        "section exactly this time, in its medium, line weight and shading."
-    ),
-    RejectionReason.AGE_WRONG: (
-        "The previous attempt's age read wrong. Follow the stated age precisely "
-        "in face shape, proportions and skin."
-    ),
-    RejectionReason.HAIR_WRONG: (
-        "The previous attempt's hair was wrong. Follow the stated hair style, "
-        "length, part and colour exactly."
-    ),
-    RejectionReason.SKIN_TONE_WRONG: (
-        "The previous attempt's skin tone was wrong. Match the stated tone "
-        "exactly, including any warmth or undertone."
-    ),
-    RejectionReason.EXPRESSION_WRONG: (
-        "The previous attempt's expression was wrong. Read the stated expression "
-        "literally and change the brows, eyelids and mouth accordingly."
-    ),
-    RejectionReason.OUTFIT_WRONG: (
-        "The previous attempt's clothing was wrong. Wear exactly the stated "
-        "outfit, and keep it readable against the background."
-    ),
-    RejectionReason.BACKGROUND_DISTRACTING: (
-        "The previous attempt's background competed with the face. Put nothing "
-        "behind the head: no objects, no pattern, no strong colour. Keep the "
-        "whole face unobstructed and clearly lit."
-    ),
-    RejectionReason.TOO_CARTOON: (
-        "The previous attempt was over-stylised and lost the person. Pull back "
-        "towards a realistic rendering while keeping light outlines."
-    ),
-    RejectionReason.NOT_CARTOON_ENOUGH: (
-        "The previous attempt looked like a photograph rather than a cartoon. "
-        "Commit harder to the art style: visible outlines and simplified shapes."
-    ),
-    RejectionReason.NO_SPECIFIC_FAULT: (
-        "The previous attempt was rejected without a specific fault. Make this "
-        "attempt clearly different from it — do not repeat the previous result."
-    ),
+    reason: prompt_text()["rejections"][reason.value] for reason in RejectionReason
 }
 
 # Short, literal wording for the UI chips. Lives beside the vocabulary so a new
@@ -112,7 +68,7 @@ REJECTION_LABELS: dict[RejectionReason, str] = {
     RejectionReason.NO_SPECIFIC_FAULT: "Something else, just different",
 }
 
-_PREAMBLE = "This is a retry. The previous attempt was rejected, so do not reproduce it."
+_PREAMBLE = prompt_text()["assembly"]["rejection_preamble"]
 
 
 class RejectionFeedback(BaseModel):

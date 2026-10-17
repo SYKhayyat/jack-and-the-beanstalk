@@ -11,6 +11,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.prompt_data import prompt_text
+
 
 class CartoonStyle(StrEnum):
     """Art direction for the stylisation pass."""
@@ -204,15 +206,8 @@ class CartoonSettings(BaseModel):
 
     def identity_directive(self) -> str:
         """The sentence that tells the model to preserve the uploaded face."""
-        return (
-            "Preserve the identity of the person in the reference image with absolute "
-            "fidelity: the same bone structure, the same face shape, the same eye shape "
-            "and eye colour, the same nose, the same mouth, the same eyebrows, the same "
-            "hairline, the same skin tone and the same distinguishing marks such as moles, "
-            "freckles, glasses and facial hair. Do not invent a new face. Do not average "
-            "the face towards a generic look. A person who knows the person in the photo "
-            "must recognise them immediately."
-        )
+        directive: str = prompt_text()["identity"]["directive"]
+        return directive
 
 
 __all__ = [

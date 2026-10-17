@@ -192,12 +192,14 @@ app/
 ├── container.py          # composition root — the one module that wires everything
 ├── errors.py             # domain exceptions → HTTP status codes
 ├── dependencies.py       # FastAPI Depends accessors
+├── prompts.toml          # THE PROMPTS — every word sent to the model, as data
+├── prompt_data.py        # the one loader for prompts.toml
 ├── models/               # MODEL: scenes, cartoon settings, results
-│   ├── scenes.py         #     the two story beats, as pure data
+│   ├── scenes.py         #     the two story beats, loaded from prompts.toml
 │   └── settings.py       #     the user-facing knobs, validated by pydantic
 ├── scripts/stress_test.py  # free load testing
 ├── services/             # domain logic, no HTTP
-│   ├── prompts.py        #     the actual product: prompt construction
+│   ├── prompts.py        #     prompt assembly: which line applies, joined how
 │   ├── concurrency.py    #     admission control for generation requests
 │   ├── pipeline.py       #     two-pass orchestration
 │   ├── images.py         #     upload validation, normalisation, EXIF stripping
@@ -324,9 +326,19 @@ backend is running.
 
 ## Adding a scene
 
-Add one `Scene(...)` entry to `SCENES` in `app/models/scenes.py`. The UI, the
-API and the prompts pick it up automatically. Fill in `must_include` and
-`must_avoid` — the negative list is what stops scene-to-scene contamination.
+Add one `[[scenes]]` table to `app/prompts.toml`. The UI, the API and the
+prompts pick it up automatically. Fill in `must_include` and `must_avoid` — the
+negative list is what stops scene-to-scene contamination.
+
+## Editing the prompts
+
+Every word the app sends to an image model lives in `app/prompts.toml`, not in
+Python. Change the prose there and restart; no code change and no rebuild. The
+values are keyed by the enum values in `app/models` (for example
+`cartoon_style = "western_cartoon"` maps to `[styles].western_cartoon`), so a
+setting added without its wording raises `KeyError` at startup rather than
+sending a prompt with a hole in it. `app/services/prompts.py` only decides which
+lines apply and how they are joined.
 
 ## Two steps, so you only pay for what you keep
 

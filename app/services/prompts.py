@@ -1,8 +1,9 @@
 """Prompt construction.
 
 This module is the app's actual intellectual core. The API call is trivial;
-deciding *what to say* is the work, and it is why this file is pure functions
-over plain data with no I/O — so every word of it is unit-testable.
+deciding *what to say* is the work. The words themselves live in
+``app/prompts.toml`` so they can be edited and reviewed without touching code;
+what stays here is the logic that chooses which line applies and joins them.
 
 The pipeline runs two passes:
 
@@ -33,6 +34,7 @@ from app.models.settings import (
     PortraitBackground,
     SkinTone,
 )
+from app.prompt_data import prompt_text
 
 __all__ = [
     "NEGATIVE_PROMPT_TAIL",
@@ -40,251 +42,76 @@ __all__ = [
     "build_scene_prompt",
 ]
 
+_DATA = prompt_text()
+
+# Fixed scaffolding around the variable parts; ``{braces}`` are filled at build
+# time. Kept as templates so the labels live in the data file too.
+_ASSEMBLY: dict[str, str] = _DATA["assembly"]
+
 # Kept in one place so every pass rejects the same failure modes: text artefacts
 # (which would fight the caption) and extra people (which would break identity).
-NEGATIVE_PROMPT_TAIL = (
-    "Do not include any text, letters, numbers, watermark, signature, logo, caption "
-    "or speech bubble anywhere in the image — the picture must be a clean illustration "
-    "with no writing in it. Do not include any other people or characters; only the one "
-    "person described above. Do not include extra limbs, extra fingers, duplicate faces "
-    "or distorted hands."
-)
+NEGATIVE_PROMPT_TAIL: str = _DATA["negative"]["tail"]
 
+# Every map below is keyed by the enum's value. Iterating the enum (rather than
+# reading the TOML keys directly) is what makes a missing entry fail at import:
+# the comprehension raises a KeyError the moment a setting has no wording.
 _STYLE_DESCRIPTIONS: dict[CartoonStyle, str] = {
-    CartoonStyle.MANGA: (
-        "black-and-white Japanese manga style, crisp confident ink linework, heavy black "
-        "outlines, screentone dot shading, dramatic speed lines, high-contrast monochrome, "
-        "large expressive eyes, hand-drawn manga panel aesthetic"
-    ),
-    CartoonStyle.ANIME: (
-        "modern Japanese anime style, clean cel shading with two-tone shadows, bright "
-        "saturated colours, soft gradient skies, large sparkling expressive eyes, delicate "
-        "linework, detailed hair strands, polished studio-anime finish"
-    ),
-    CartoonStyle.WESTERN_CARTOON: (
-        "classic hand-drawn western cartoon style, bold rounded ink outlines, flat blocks "
-        "of warm colour, simplified friendly shapes, gentle squash-and-stretch, vintage "
-        "storybook cel animation look"
-    ),
-    CartoonStyle.PIXAR_LIKE: (
-        "high-end 3D animated feature style, soft global illumination, subsurface-scattered "
-        "skin, large expressive eyes with real catchlights, appealing stylised proportions, "
-        "shallow depth of field, warm cinematic colour grading, polished family-film design"
-    ),
-    CartoonStyle.DISNEY_LIKE: (
-        "classic hand-painted 2D animation style, fluid confident curves, soft "
-        "painted backgrounds, expressive appealing character design, warm colour, generous "
-        "rounded shapes, storybook cel animation finish"
-    ),
-    CartoonStyle.COMIC_BOOK: (
-        "American comic book style, heavy black ink outlines, halftone Ben-Day dot shading, "
-        "flat saturated four-colour palette, dynamic heroic composition, bold panel energy"
-    ),
-    CartoonStyle.PENCIL_SKETCH: (
-        "graphite pencil sketch, confident cross-hatched shading, visible pencil grain, "
-        "loose expressive linework on warm off-white paper, monochrome hand-drawn study"
-    ),
-    CartoonStyle.WATERCOLOUR: (
-        "traditional watercolour painting, soft wet-on-wet colour bleeds, visible paper "
-        "texture, translucent layered washes, loose painterly edges, delicate ink accents"
-    ),
-    CartoonStyle.VECTOR_FLAT: (
-        "flat vector illustration, perfectly smooth geometric shapes, no gradients, "
-        "no texture, bold clean silhouettes, bright modern palette, minimal "
-        "scalable-graphics look"
-    ),
+    style: _DATA["styles"][style.value] for style in CartoonStyle
 }
 
 _ASPECT_HINTS: dict[AspectRatio, str] = {
-    AspectRatio.PORTRAIT: "square 1:1 composition",
-    AspectRatio.LANDSCAPE: "4:3 landscape composition",
-    AspectRatio.TALL: "tall 3:4 portrait composition",
-    AspectRatio.CINEMATIC: "wide cinematic 16:9 composition",
+    ratio: _DATA["aspect_hints"][ratio.value] for ratio in AspectRatio
 }
 
 _AGE_DESCRIPTIONS: dict[ApparentAge, str] = {
-    ApparentAge.AS_UPLOADED: "Keep the subject at the same apparent age as in the photo.",
-    ApparentAge.CHILD: "Depict the subject as a child around 10 years old.",
-    ApparentAge.TEEN: "Depict the subject as a teenager around 16 years old.",
-    ApparentAge.ADULT: "Depict the subject as a grown adult around 30 years old.",
+    age: _DATA["ages"][age.value] for age in ApparentAge
 }
 
 _GENDER_DESCRIPTIONS: dict[GenderPresentation, str] = {
-    GenderPresentation.AS_UPLOADED: (
-        "Match the gender presentation of the person in the photo."
-    ),
-    GenderPresentation.FEMININE: (
-        "Present the character with a feminine gender presentation, redesigned "
-        "consistently from the same facial bone structure."
-    ),
-    GenderPresentation.MASCULINE: (
-        "Present the character with a masculine gender presentation, redesigned "
-        "consistently from the same facial bone structure."
-    ),
-    GenderPresentation.ANDROGYNOUS: (
-        "Present the character as deliberately androgynous, keeping the facial bone "
-        "structure from the photo and reading as gender-neutral."
-    ),
+    gender: _DATA["genders"][gender.value] for gender in GenderPresentation
 }
 
 _SKIN_DESCRIPTIONS: dict[SkinTone, str] = {
-    SkinTone.AS_UPLOADED: "Keep the exact natural skin tone from the photo.",
-    SkinTone.VERY_LIGHT: "Render the skin very light and fair.",
-    SkinTone.LIGHT: "Render the skin light and fair.",
-    SkinTone.MEDIUM: "Render the skin a medium beige tone.",
-    SkinTone.TAN: "Render the skin warm and tanned.",
-    SkinTone.OLIVE: "Render the skin an olive tone.",
-    SkinTone.BROWN: "Render the skin a rich brown tone.",
-    SkinTone.DEEP_BROWN: "Render the skin a deep brown tone.",
-    SkinTone.DEEPEST_BROWN: "Render the skin the deepest rich brown tone.",
+    tone: _DATA["skins"][tone.value] for tone in SkinTone
 }
 
 # Background descriptions for the portrait pass only. See PortraitBackground
-# for why these never reach the scene prompt.
-# Every user setting is a closed set now, so each one needs a sentence for the
-# prompt. Without these the enum value itself would be interpolated, and the
-# model would be asked to wear "storybook_tunic".
+# for why these never reach the scene prompt. Without these the enum value
+# itself would be interpolated, and the model would be asked to wear
+# "storybook_tunic".
 _OUTFIT_DESCRIPTIONS: dict[Outfit, str] = {
-    Outfit.AS_UPLOADED: (
-        "Wear the same clothing as in the photograph, redesigned in the art "
-        "style of the image."
-    ),
-    Outfit.STORYBOOK_TUNIC: (
-        "Wearing a classic storybook tunic and breeches in muted earth tones."
-    ),
-    Outfit.PEASANT: ("Wearing rough, patched peasant clothes in undyed linen and wool."),
-    Outfit.ADVENTURER: (
-        "Wearing an adventurer's tunic with a leather belt and shoulder strap."
-    ),
-    Outfit.SIMPLE_SHIRT: "Wearing a plain shirt and trousers.",
-    Outfit.HOODED_CLOAK: (
-        "Wearing a hooded travelling cloak with the hood down so the face and "
-        "hair are fully visible."
-    ),
-    Outfit.NONE_SPECIFIED: (
-        "Wearing simple, unremarkable clothing that does not draw attention."
-    ),
+    outfit: _DATA["outfits"][outfit.value] for outfit in Outfit
 }
 
 _HAIR_STYLE_DESCRIPTIONS: dict[HairStyle, str] = {
-    HairStyle.AS_UPLOADED: "Keep the hairstyle exactly as in the photograph.",
-    HairStyle.SHORT: "Short, cropped hair.",
-    HairStyle.BOB: "A chin-length bob.",
-    HairStyle.LONG_STRAIGHT: "Long, straight hair falling past the shoulders.",
-    HairStyle.LONG_WAVY: "Long, wavy hair falling past the shoulders.",
-    HairStyle.CURLY: "Defined curly hair.",
-    HairStyle.COILY: "Tight coiled hair.",
-    HairStyle.PONYTAIL: "Hair pulled back into a ponytail.",
-    HairStyle.BUNS: "Hair gathered into buns.",
-    HairStyle.BALD: "A bald scalp, with no hair.",
+    style: _DATA["hair_styles"][style.value] for style in HairStyle
 }
 
 _HAIR_COLOUR_DESCRIPTIONS: dict[HairColour, str] = {
-    HairColour.AS_UPLOADED: "Keep the exact hair colour from the photograph.",
-    HairColour.BLACK: "Black hair.",
-    HairColour.DARK_BROWN: "Dark brown hair.",
-    HairColour.BROWN: "Brown hair.",
-    HairColour.AUBURN: "Auburn hair.",
-    HairColour.RED: "Red hair.",
-    HairColour.BLONDE: "Blonde hair.",
-    HairColour.PLATINUM: "Platinum blonde hair.",
-    HairColour.GREY: "Grey hair.",
-    HairColour.WHITE: "White hair.",
+    colour: _DATA["hair_colours"][colour.value] for colour in HairColour
 }
 
 _EXPRESSION_DESCRIPTIONS: dict[Expression, str] = {
-    Expression.AS_UPLOADED: "Keep the expression from the photograph.",
-    Expression.FOCUSED_DETERMINED: "A focused, determined expression.",
-    Expression.HAPPY: "A warm, happy expression.",
-    Expression.SERIOUS: "A serious, level expression.",
-    Expression.SURPRISED: "A surprised expression with raised eyebrows.",
-    Expression.CURIOUS: "A curious, attentive expression.",
-    Expression.BRAVE: "A brave, resolute expression.",
-    Expression.WORRIED: "A worried expression with slightly drawn brows.",
-    Expression.GRINNING: "A broad grin showing teeth.",
+    expression: _DATA["expressions"][expression.value] for expression in Expression
 }
 
 _PORTRAIT_BACKGROUNDS: dict[PortraitBackground, str] = {
-    PortraitBackground.PLAIN: (
-        "BACKGROUND: plain and quiet — an even, untextured field of a single "
-        "soft neutral tone. Nothing behind the head, no objects, no pattern, no "
-        "horizon line, no vignette. The face is the only thing in the picture "
-        "that matters."
-    ),
-    PortraitBackground.AS_UPLOADED: (
-        "BACKGROUND: keep the background of the original photograph, simplified "
-        "into the art style but recognisably the same place. Keep the face and "
-        "hairline clearly separated from it."
-    ),
-    PortraitBackground.SOFT_COLOUR: (
-        "BACKGROUND: a soft, out-of-focus wash of one muted colour with a gentle "
-        "gradient. Nothing in it is in focus and nothing is in it is a shape."
-    ),
-    PortraitBackground.STORYBOOK: (
-        "BACKGROUND: a hand-painted storybook backdrop — soft rolling hills, a "
-        "few distant stylised trees and a warm painted sky, all low-contrast and "
-        "clearly behind the figure, leaving the face unobstructed."
-    ),
+    background: _DATA["portrait_backgrounds"][background.value]
+    for background in PortraitBackground
 }
 
 _LIKENESS_EMPHASIS: dict[LikenessStrength, str] = {
-    LikenessStrength.STRICT: (
-        "Match the uploaded face as precisely as a photograph would. Small deviations "
-        "in the eyes, nose, jaw or hairline are failures, not interpretation."
-    ),
-    LikenessStrength.BALANCED: (
-        "Match the uploaded face closely while allowing small stylised departures."
-    ),
-    LikenessStrength.LOOSE: (
-        "Keep the uploaded face recognisable, letting the art style shape it somewhat more."
-    ),
+    strength: _DATA["likeness"][strength.value] for strength in LikenessStrength
 }
 
 # The cartoon-vs-real dial, sampled at each intensity from 1 to 10. Written out
 # rather than interpolated so each step has human-vetted language behind it —
 # the alternative, a numeric formula, produced mush at the middle values.
 _INTENSITY_DESCRIPTIONS: dict[int, str] = {
-    1: (
-        "barely stylised: keep the photograph almost intact, adding only delicate line "
-        "work over the eyes and a very light ink trace on the contours"
-    ),
-    2: (
-        "very lightly stylised: retain photographic shading and texture, with soft "
-        "ink lines defining the eyes, brows and jaw"
-    ),
-    3: (
-        "lightly stylised: photographic likeness with visible outline lines and slightly "
-        "simplified facial shapes"
-    ),
-    4: (
-        "moderately stylised: painterly realism with clear outlines and gently simplified "
-        "features, still unmistakably the same person"
-    ),
-    5: (
-        "about half stylised: an even balance between realistic rendering and cartoon "
-        "simplification, with clean outlines and simplified shapes"
-    ),
-    6: (
-        "clearly stylised: unmistakable cartoon rendering, but the facial structure and "
-        "every identifying feature are still faithful to the photo"
-    ),
-    7: (
-        "strongly stylised: bold cartoon shapes and confident outlines, with the face "
-        "still unmistakably the person in the photo"
-    ),
-    8: (
-        "very strongly stylised: graphic cartoon shapes, heavy clean outlines and flat "
-        "colour, while the face remains instantly recognisable as the same person"
-    ),
-    9: (
-        "almost entirely graphic: bold flat shapes and thick outlines, the design reads "
-        "as a caricature that a friend would still identify without hesitation"
-    ),
-    10: (
-        "fully graphic: maximally simplified bold shapes, thick outlines and flat poster "
-        "colour, reduced to the most iconic version of this specific person's face"
-    ),
+    int(step): text for step, text in _DATA["intensity"].items()
 }
+
+_PHOTOREAL: dict[str, str] = _DATA["photoreal"]
 
 
 def _intensity_text(intensity: int) -> str:
@@ -296,30 +123,21 @@ def _photoreal_keywords(intensity: int) -> str:
     if intensity <= 3:
         return ""
     if intensity <= 5:
-        return "Avoid heavy simplification of the face; keep features readable."
-    return (
-        "Simplify boldly and graphically. Do not fall back towards photographic "
-        "rendering or 3D realism."
-    )
+        return _PHOTOREAL["soft"]
+    return _PHOTOREAL["strong"]
 
 
 def _accessory_directives(settings: CartoonSettings) -> list[str]:
-    directives: list[str] = []
+    accessories: dict[str, str] = _DATA["accessories"]
     if settings.keep_glasses:
-        directives.append(
-            "If the person in the photo wears glasses, keep those glasses on the "
-            "character, drawn in the same style as the rest of the image."
-        )
+        glasses = accessories["keep_glasses"]
     else:
-        directives.append("Remove any glasses or sunglasses.")
+        glasses = accessories["remove_glasses"]
     if settings.keep_facial_hair:
-        directives.append(
-            "If the person has facial hair, keep it, drawn in the same style as the "
-            "rest of the image."
-        )
+        facial_hair = accessories["keep_facial_hair"]
     else:
-        directives.append("Remove any facial hair.")
-    return directives
+        facial_hair = accessories["remove_facial_hair"]
+    return [glasses, facial_hair]
 
 
 def _common_character_block(settings: CartoonSettings) -> str:
@@ -357,22 +175,17 @@ def build_cartoon_prompt(
     """
     style_text = _STYLE_DESCRIPTIONS[settings.cartoon_style]
     sections = [
-        "TASK: Turn the person in the supplied photograph into a single "
-        "character portrait, in the art style described below.",
+        _ASSEMBLY["task_cartoon"],
         *([rejection.prompt_block()] if rejection and not rejection.is_empty else []),
         settings.identity_directive(),
         _LIKENESS_EMPHASIS[settings.likeness_strength],
         _common_character_block(settings),
-        "STYLISATION LEVEL (user setting, honour it exactly): "
-        f"{_intensity_text(settings.cartoon_intensity)}.",
+        _ASSEMBLY["stylisation"].format(intensity=_intensity_text(settings.cartoon_intensity)),
         _photoreal_keywords(settings.cartoon_intensity),
-        f"ART STYLE: {style_text}.",
-        "FRAMING: a head-and-shoulders portrait facing the camera, head and face "
-        "large and unobstructed in the centre of the frame, eyes fully visible and "
-        "not hidden by hair or shadow, even flattering light on the face so every "
-        "feature reads clearly.",
+        _ASSEMBLY["art_style"].format(style=style_text),
+        _ASSEMBLY["framing"],
         _PORTRAIT_BACKGROUNDS[settings.portrait_background],
-        f"COMPOSITION: {_ASPECT_HINTS[settings.aspect_ratio]}.",
+        _ASSEMBLY["composition"].format(aspect=_ASPECT_HINTS[settings.aspect_ratio]),
         NEGATIVE_PROMPT_TAIL,
     ]
     return _join_sections(sections)
@@ -387,26 +200,22 @@ def build_scene_prompt(scene: Scene, settings: CartoonSettings) -> str:
     """
     style_text = _STYLE_DESCRIPTIONS[settings.cartoon_style]
     sections = [
-        "TASK: Draw the character from the reference images as Jack, performing the "
-        "scene specified below. The reference images are the same person: the first is "
-        "their cartoon portrait, the second is their original photograph.",
+        _ASSEMBLY["task_scene"],
         settings.identity_directive(),
         _LIKENESS_EMPHASIS[settings.likeness_strength],
         # Repeated rather than assumed: this is what models drop when the scene
         # action is exciting, and it is the first of the two graded requirements.
-        f"SCENE TO DRAW (this is the entire content of the picture): {scene.caption}",
-        f"WHAT THE CHARACTER IS DOING: {scene.subject_action}. "
-        f"Get this action right — it is what the scene is about.",
-        f"WHERE: {scene.environment}.",
-        f"LIGHTING: {scene.time_of_day}.",
-        f"CAMERA: {scene.camera}.",
+        _ASSEMBLY["scene_to_draw"].format(caption=scene.caption),
+        _ASSEMBLY["character_doing"].format(action=scene.subject_action),
+        _ASSEMBLY["where"].format(environment=scene.environment),
+        _ASSEMBLY["lighting"].format(time_of_day=scene.time_of_day),
+        _ASSEMBLY["camera"].format(camera=scene.camera),
         scene.checklist,
         _common_character_block(settings),
-        "STYLISATION LEVEL (user setting, honour it exactly): "
-        f"{_intensity_text(settings.cartoon_intensity)}.",
+        _ASSEMBLY["stylisation"].format(intensity=_intensity_text(settings.cartoon_intensity)),
         _photoreal_keywords(settings.cartoon_intensity),
-        f"ART STYLE: {style_text}.",
-        f"COMPOSITION: {_ASPECT_HINTS[settings.aspect_ratio]}.",
+        _ASSEMBLY["art_style"].format(style=style_text),
+        _ASSEMBLY["composition"].format(aspect=_ASPECT_HINTS[settings.aspect_ratio]),
         _avoid_clause(scene),
         NEGATIVE_PROMPT_TAIL,
     ]
@@ -417,7 +226,7 @@ def _avoid_clause(scene: Scene) -> str:
     if not scene.must_avoid:
         return ""
     items = ", ".join(scene.must_avoid)
-    return f"Do not show any of the following: {items}."
+    return _ASSEMBLY["avoid"].format(items=items)
 
 
 def _join_sections(sections: list[str]) -> str:
