@@ -17,6 +17,7 @@ from fastapi.templating import Jinja2Templates
 from app.config import Settings, get_settings
 from app.container import build_container
 from app.errors import register_exception_handlers
+from app.redaction import install_secret_redaction
 from app.routes import api, media, web
 from app.services.image_providers.base import ImageProvider
 
@@ -75,10 +76,12 @@ def create_app(
 def _configure_logging(settings: Settings) -> None:
     level = logging.INFO if settings.is_production else logging.DEBUG
     root = logging.getLogger()
-    if root.handlers:
-        root.setLevel(level)
-        return
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
-    )
+    if not root.handlers:
+        logging.basicConfig(
+            level=level,
+            format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
+        )
+    root.setLevel(level)
+    # Last line of defence: even if a secret reaches a logger some other way, it
+    # is scrubbed before the handler formats the record.
+    install_secret_redaction((settings.openai_api_key, settings.gemini_api_key))

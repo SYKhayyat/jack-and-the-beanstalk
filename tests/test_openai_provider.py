@@ -249,3 +249,37 @@ class TestCostDiscipline:
         # endpoint that is the same trap as an explicit retry loop.
         provider = OpenAIImageProvider(api_key="k")
         assert getattr(provider._client, "max_retries", None) == 0
+
+
+class TestSecretHandling:
+    def test_key_is_stripped_of_surrounding_whitespace(self) -> None:
+        # A key pasted into an env var with a trailing newline must still work,
+        # rather than failing later with an illegal Authorization header.
+        provider = OpenAIImageProvider(api_key="  sk-test\n")
+        assert provider._client.api_key == "sk-test"
+
+    def test_a_whitespace_only_key_is_refused(self) -> None:
+        with pytest.raises(ProviderUnavailable, match="OPENAI_API_KEY"):
+            OpenAIImageProvider(api_key="   \n")
+
+    def test_a_failing_request_never_echoes_the_key(self) -> None:
+        secret = "sk-supersecretvalue"
+        images = FakeImages(raises=RuntimeError(f"Illegal header value b'Bearer {secret}\n'"))
+        provider = OpenAIImageProvider(api_key=secret)
+        provider._client = FakeClient(images)
+
+        with pytest.raises(ProviderError) as caught:
+            provider.generate(req(prompt="p"))
+
+        assert secret not in str(caught.value)
+        assert "REDACTED" in str(caught.value)
+
+    def test_the_original_error_is_not_chained(self) -> None:
+        # `from None` is what keeps the raw transport message (which can carry
+        # the key) out of the logged traceback.
+        images = FakeImages(raises=RuntimeError("boom"))
+        with pytest.raises(ProviderError) as caught:
+            build(images).generate(req(prompt="p"))
+
+        assert caught.value.__cause__ is None
+        assert caught.value.__suppress_context__ is True

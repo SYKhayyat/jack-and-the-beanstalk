@@ -22,6 +22,7 @@ import io
 import logging
 from typing import Literal, cast, get_args
 
+from app.redaction import redact
 from app.services.image_providers.base import (
     GeneratedImage,
     ImageProvider,
@@ -106,11 +107,17 @@ class OpenAIImageProvider(ImageProvider):
         quality: str = "low",
         timeout_seconds: int = 600,
     ) -> None:
-        if not api_key.strip():
+        # Strip before use: a key pasted into an environment variable often
+        # carries a trailing newline, which produces an illegal Authorization
+        # header ("Illegal header value b'Bearer sk-...\n'") rather than a clean
+        # auth error. Trimming here makes that class of paste harmless.
+        api_key = api_key.strip()
+        if not api_key:
             raise ProviderUnavailable(
                 "OPENAI_API_KEY is not set. Create a key at "
                 "https://platform.openai.com/api-keys and add it to your environment."
             )
+        self._api_key = api_key
         try:
             from openai import OpenAI
         except ImportError as exc:  # pragma: no cover - depends on install extras
@@ -186,7 +193,11 @@ class OpenAIImageProvider(ImageProvider):
                 n=n,
             )
         except Exception as exc:  # the SDK raises a wide range of exception types
-            raise ProviderError(f"OpenAI request failed: {exc}") from exc
+            # Redact the key and drop the cause: a transport error can embed the
+            # raw Authorization header, and `from None` stops that original
+            # message (secret included) from being printed in the traceback.
+            detail = redact(str(exc), (self._api_key,))
+            raise ProviderError(f"OpenAI request failed: {detail}") from None
 
         return response
 
