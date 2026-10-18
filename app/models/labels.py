@@ -18,12 +18,13 @@ from app.models import (
     ApparentAge,
     AspectRatio,
     CartoonStyle,
+    CharacterGender,
     Expression,
-    GenderPresentation,
     HairColour,
     HairStyle,
     LikenessStrength,
     Outfit,
+    PhotoGender,
     PortraitBackground,
     SkinTone,
 )
@@ -129,10 +130,14 @@ _AGE = {
 }
 
 _GENDER = {
-    GenderPresentation.AS_UPLOADED: "Keep how I present",
-    GenderPresentation.FEMININE: "Feminine",
-    GenderPresentation.MASCULINE: "Masculine",
-    GenderPresentation.ANDROGYNOUS: "Androgynous",
+    CharacterGender.MATCH: "Match the photo",
+    CharacterGender.BOY: "Boy",
+    CharacterGender.GIRL: "Girl",
+}
+
+_PHOTO_GENDER = {
+    PhotoGender.BOY: "Boy (Jack)",
+    PhotoGender.GIRL: "Girl (Jane)",
 }
 
 _SKIN = {
@@ -170,7 +175,8 @@ def _build() -> dict[type[StrEnum], dict[StrEnum, str]]:
         HairColour: _labels(HairColour, _HAIR_COLOUR),
         Expression: _labels(Expression, _EXPRESSION),
         ApparentAge: _labels(ApparentAge, _AGE),
-        GenderPresentation: _labels(GenderPresentation, _GENDER),
+        CharacterGender: _labels(CharacterGender, _GENDER),
+        PhotoGender: _labels(PhotoGender, _PHOTO_GENDER),
         SkinTone: _labels(SkinTone, _SKIN),
         LikenessStrength: _labels(LikenessStrength, _LIKENESS),
         AspectRatio: _labels(AspectRatio, _ASPECT),

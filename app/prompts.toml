@@ -40,12 +40,31 @@ child = "Depict the subject as a child around 10 years old."
 teen = "Depict the subject as a teenager around 16 years old."
 adult = "Depict the subject as a grown adult around 30 years old."
 
-# Gender presentation, keyed by GenderPresentation.
+# Which gender the AI should draw, keyed by CharacterGender.
 [genders]
-as_uploaded = "Match the gender presentation of the person in the photo."
-feminine = "Present the character with a feminine gender presentation, redesigned consistently from the same facial bone structure."
-masculine = "Present the character with a masculine gender presentation, redesigned consistently from the same facial bone structure."
-androgynous = "Present the character as deliberately androgynous, keeping the facial bone structure from the photo and reading as gender-neutral."
+match = "Keep the character's gender the same as the person in the photograph."
+boy = "Present the character unmistakably as a boy, keeping the facial bone structure from the photo."
+girl = "Present the character unmistakably as a girl, keeping the facial bone structure from the photo."
+
+# The character's name, keyed by PhotoGender (the resolved boy/girl answer).
+# Boy is Jack, girl is Jane — the story is told either way.
+[names]
+boy = "Jack"
+girl = "Jane"
+
+# Pronouns, keyed by PhotoGender, substituted into the scene prose so a girl is
+# never called "him".
+[pronouns.boy]
+subject = "he"
+object = "him"
+possessive = "his"
+reflexive = "himself"
+
+[pronouns.girl]
+subject = "she"
+object = "her"
+possessive = "her"
+reflexive = "herself"
 
 # Skin tone, keyed by SkinTone.
 [skins]
@@ -148,7 +167,8 @@ remove_facial_hair = "Remove any facial hair."
 # Fixed scaffolding around the variable parts. {braces} are filled at build time.
 [assembly]
 task_cartoon = "TASK: Turn the person in the supplied photograph into a single character portrait, in the art style described below."
-task_scene = "TASK: Draw the character from the reference images as Jack, performing the scene specified below. The reference images are the same person: the first is their cartoon portrait, the second is their original photograph."
+task_scene = "TASK: Draw the character from the reference images as {name}, performing the scene specified below. The reference images are the same person: the first is their cartoon portrait, the second is their original photograph."
+character_name = "The character's name is {name}. Use {subject} / {object} / {possessive} pronouns for this character throughout; never use pronouns of a different gender."
 framing = "FRAMING: a head-and-shoulders portrait facing the camera, head and face large and unobstructed in the centre of the frame, eyes fully visible and not hidden by hair or shadow, even flattering light on the face so every feature reads clearly."
 stylisation = "STYLISATION LEVEL (user setting, honour it exactly): {intensity}."
 art_style = "ART STYLE: {style}."
@@ -181,22 +201,22 @@ no_specific_fault = "The previous attempt was rejected without a specific fault.
 # caption burned onto the result — they cannot drift apart.
 [[scenes]]
 key = "planting-seeds"
-title = "Jack is planting the seeds"
-caption = "Jack is planting the seeds. Young Jack kneels in a cottage garden, pressing a handful of magic beans into a freshly dug hole in dark soil, beside his mother's cottage with a thatched roof behind him."
-subject_action = "kneeling on both knees in the soil, bent forward, one hand pushing beans down into the hole and the other steadying himself on the ground"
-environment = "the dirt patch behind his mother's small stone cottage, a wooden fence and a low stone wall at the edge of the plot, garden tools and an empty clay pot set aside, the magic beans glowing faintly in the hole"
+title = "{name} is planting the seeds"
+caption = "{name} is planting the seeds. Young {name} kneels in a cottage garden, pressing a handful of magic beans into a freshly dug hole in dark soil, beside {possessive} mother's cottage with a thatched roof behind {object}."
+subject_action = "kneeling on both knees in the soil, bent forward, one hand pushing beans down into the hole and the other steadying {reflexive} on the ground"
+environment = "the dirt patch behind {possessive} mother's small stone cottage, a wooden fence and a low stone wall at the edge of the plot, garden tools and an empty clay pot set aside, the magic beans glowing faintly in the hole"
 time_of_day = "early morning, soft low golden sunlight and long cool shadows"
 camera = "three-quarter eye-level medium-wide shot, subject sharp in the centre third, gentle depth of field on the cottage behind"
-must_include = ["magic beans being placed into the soil", "a dug hole in dark earth", "the thatched cottage", "Jack kneeling"]
-must_avoid = ["a beanstalk", "a giant", "Jack climbing or standing upright", "text, watermark, logo or speech bubble"]
+must_include = ["magic beans being placed into the soil", "a dug hole in dark earth", "the thatched cottage", "{name} kneeling"]
+must_avoid = ["a beanstalk", "a giant", "{name} climbing or standing upright", "text, watermark, logo or speech bubble"]
 
 [[scenes]]
 key = "climbing-beanstalk"
-title = "Jack is climbing the beanstalk"
-caption = "Jack is climbing the beanstalk. Jack grips the thick twisting vine and clambers high above the clouds, the stalk vanishing up into a bright sky while the cottage and fields shrink to a toy-sized patchwork far below."
+title = "{name} is climbing the beanstalk"
+caption = "{name} is climbing the beanstalk. {name} grips the thick twisting vine and clambers high above the clouds, the stalk vanishing up into a bright sky while the cottage and fields shrink to a toy-sized patchwork far below."
 subject_action = "climbing, both hands wrapped around the vine and one knee hooked around it, body pressed to the stalk and looking upward toward the clouds"
 environment = "a colossal spiralling green beanstalk rising out of the farmland below, clouds and pale blue sky all around, a vast castle with golden turrets faintly visible high above through a break in the clouds, tiny cottage and fields far beneath"
 time_of_day = "bright clear morning, sunlit clouds and luminous green stalk"
-camera = "dramatic vertical low-angle looking up the length of the stalk, extreme scale contrast between the tiny earth below and Jack high in the sky"
-must_include = ["a colossal beanstalk Jack is gripping", "clouds", "the ground and cottage far below", "hands and feet in a climbing position"]
-must_avoid = ["Jack planting or kneeling on the ground", "a giant", "the chicken or the golden hen", "text, watermark, logo or speech bubble"]
+camera = "dramatic vertical low-angle looking up the length of the stalk, extreme scale contrast between the tiny earth below and {name} high in the sky"
+must_include = ["a colossal beanstalk {name} is gripping", "clouds", "the ground and cottage far below", "hands and feet in a climbing position"]
+must_avoid = ["{name} planting or kneeling on the ground", "a giant", "the chicken or the golden hen", "text, watermark, logo or speech bubble"]

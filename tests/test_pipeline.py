@@ -11,6 +11,7 @@ from PIL import Image
 from app.models import CartoonSettings, get_scene
 from app.services.images import decode_upload
 from app.services.pipeline import GenerationPipeline
+from app.services.prompts import render_scene
 from app.services.storage import GenerationStore
 from tests.helpers import RecordingProvider, StubProvider, make_photo_bytes
 
@@ -125,7 +126,7 @@ class TestResultContents:
             .result
         )
 
-        assert result.caption == CLIMBING.caption
+        assert result.caption == render_scene(CLIMBING, CartoonSettings()).caption
         assert result.caption in provider.requests[1].prompt
         with Image.open(io.BytesIO(result.scene_image)) as scene_image:
             assert scene_image.format == "PNG"
@@ -215,7 +216,7 @@ class TestPersistence:
 
         meta = store.read_meta(generation_id)
         assert meta is not None
-        assert meta["caption"] == PLANTING.caption
+        assert meta["caption"] == render_scene(PLANTING, CartoonSettings()).caption
         assert meta["provider"] == "recording"
         assert meta["scene_key"] == "planting-seeds"
 

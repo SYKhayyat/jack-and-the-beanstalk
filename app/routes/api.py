@@ -25,9 +25,10 @@ from app.models import (
     AspectRatio,
     CartoonSettings,
     CartoonStyle,
-    GenderPresentation,
+    CharacterGender,
     GenerationResult,
     LikenessStrength,
+    PhotoGender,
     Scene,
     SkinTone,
     get_scene,
@@ -52,6 +53,7 @@ from app.services.pipeline import (
     GenerationPipeline,
     PipelineOutcome,
 )
+from app.services.prompts import render_scene
 from app.services.storage import Draft, StoredGeneration
 
 SettingsDep = Annotated[CartoonSettings, Depends(cartoon_settings_from_form)]
@@ -67,16 +69,22 @@ router = APIRouter(prefix="/api", tags=["api"])
 
 @router.get("/scenes")
 def list_scenes() -> dict[str, object]:
-    """The scenes this app can draw, for the UI to populate."""
+    """The scenes this app can draw, for the UI to populate.
+
+    Rendered with the default settings (a boy, so Jack) purely so the catalogue
+    reads naturally; the real name is substituted at generation time.
+    """
+    defaults = CartoonSettings()
     return {
         "scenes": [
             {
                 "key": scene.key,
-                "title": scene.title,
-                "caption": scene.caption,
-                "checklist": list(scene.must_include),
+                "title": rendered.title,
+                "caption": rendered.caption,
+                "checklist": list(rendered.must_include),
             }
             for scene in SCENES
+            for rendered in (render_scene(scene, defaults),)
         ]
     }
 
@@ -88,7 +96,8 @@ def list_settings_options() -> dict[str, object]:
         "cartoon_style": _options(CartoonStyle),
         "aspect_ratio": _options(AspectRatio),
         "apparent_age": _options(ApparentAge),
-        "gender_presentation": _options(GenderPresentation),
+        "character_gender": _options(CharacterGender),
+        "photo_gender": _options(PhotoGender),
         "skin_tone": _options(SkinTone),
         "likeness_strength": _options(LikenessStrength),
         "portrait_background": _options(PortraitBackground),
@@ -171,7 +180,8 @@ async def compose(
         ),
         "compose",
     )
-    return _result_payload(outcome.result, outcome.stored, selected.title)
+    title = render_scene(selected, outcome.result.settings).title
+    return _result_payload(outcome.result, outcome.stored, title)
 
 
 @router.post("/generate", status_code=status.HTTP_201_CREATED)
@@ -197,7 +207,8 @@ async def generate(
         lambda: _generate_blocking(container.pipeline, raw, selected, settings),
         "generate",
     )
-    return _result_payload(outcome.result, outcome.stored, selected.title)
+    title = render_scene(selected, settings).title
+    return _result_payload(outcome.result, outcome.stored, title)
 
 
 # --- shared helpers ---------------------------------------------------------

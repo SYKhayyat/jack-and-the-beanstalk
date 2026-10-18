@@ -16,17 +16,19 @@ from app.models import (
     AspectRatio,
     CartoonSettings,
     CartoonStyle,
+    CharacterGender,
     Expression,
-    GenderPresentation,
     HairColour,
     HairStyle,
     LikenessStrength,
     Outfit,
+    PhotoGender,
     PortraitBackground,
     RejectionReason,
     SkinTone,
 )
 from app.models.labels import choices_for
+from app.services.prompts import render_scene
 
 __all__ = ["router"]
 
@@ -42,12 +44,15 @@ def index(request: Request, container: ContainerDep) -> HTMLResponse:
         request=request,
         name="index.html",
         context={
-            "scenes": SCENES,
+            # Rendered with the defaults so the catalogue reads naturally; the
+            # chosen name is substituted again when a scene is generated.
+            "scenes": [render_scene(scene, defaults) for scene in SCENES],
             "defaults": defaults,
             "styles": _choices(CartoonStyle),
             "aspect_ratios": _choices(AspectRatio),
             "ages": _choices(ApparentAge),
-            "genders": _choices(GenderPresentation),
+            "genders": _choices(CharacterGender),
+            "photo_genders": _choices(PhotoGender),
             "skin_tones": _choices(SkinTone),
             "outfits": _choices(Outfit),
             "hair_styles": _choices(HairStyle),

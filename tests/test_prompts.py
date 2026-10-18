@@ -8,11 +8,16 @@ import pytest
 from app.models import CartoonSettings, CartoonStyle, Scene, get_scene
 from app.models.settings import (
     ApparentAge,
-    GenderPresentation,
+    CharacterGender,
     LikenessStrength,
+    PhotoGender,
     SkinTone,
 )
-from app.services.prompts import build_cartoon_prompt, build_scene_prompt
+from app.services.prompts import (
+    build_cartoon_prompt,
+    build_scene_prompt,
+    render_scene,
+)
 
 PLANTING = get_scene("planting-seeds")
 CLIMBING = get_scene("climbing-beanstalk")
@@ -101,7 +106,7 @@ class TestCartoonPrompt:
         ("field", "value", "expected"),
         [
             ("apparent_age", ApparentAge.CHILD, "10 years old"),
-            ("gender_presentation", GenderPresentation.FEMININE, "feminine"),
+            ("character_gender", CharacterGender.GIRL, "girl"),
             ("skin_tone", SkinTone.DEEP_BROWN, "deep brown"),
         ],
     )
@@ -120,29 +125,40 @@ class TestCartoonPrompt:
         assert "Remove any glasses" in dropped
         assert "Remove any facial hair" in dropped
 
-    @pytest.mark.parametrize("strength", [LikenessStrength.STRICT, LikenessStrength.LOOSE])
-    def test_likeness_strength_is_reflected(self, strength: LikenessStrength) -> None:
+    @pytest.mark.parametrize(
+        ("strength", "expected"),
+        [
+            (LikenessStrength.STRICT, "Match the uploaded face"),
+            (LikenessStrength.LOOSE, "letting the art style shape it"),
+        ],
+    )
+    def test_likeness_strength_is_reflected(
+        self, strength: LikenessStrength, expected: str
+    ) -> None:
         prompt = build_cartoon_prompt(CartoonSettings(likeness_strength=strength))
-        assert "MATCH" in prompt or "Match" in prompt
+        assert expected in prompt
 
 
 class TestScenePrompt:
     def test_scene_caption_is_embedded_verbatim(self) -> None:
         # This is what makes the burned-in caption honest: the spec we send and
-        # the caption we show are the same string.
+        # the caption we show are the same string. The catalogue is rendered for
+        # the default character (a boy, so Jack) before it is embedded.
+        settings = CartoonSettings()
         for scene in (PLANTING, CLIMBING):
-            prompt = build_scene_prompt(scene, CartoonSettings())
-            assert scene.caption in prompt
+            prompt = build_scene_prompt(scene, settings)
+            assert render_scene(scene, settings).caption in prompt
 
     def test_subject_action_is_emphasised(self) -> None:
         prompt = build_scene_prompt(PLANTING, CartoonSettings())
+        action = render_scene(PLANTING, CartoonSettings()).subject_action
         assert "WHAT THE CHARACTER IS DOING" in prompt
-        assert PLANTING.subject_action.split(",")[0] in prompt
+        assert action.split(",")[0] in prompt
 
     def test_checklist_is_included(self) -> None:
         prompt = build_scene_prompt(CLIMBING, CartoonSettings())
         assert "must be clearly visible" in prompt
-        for item in CLIMBING.must_include:
+        for item in render_scene(CLIMBING, CartoonSettings()).must_include:
             assert item in prompt
 
     def test_avoidance_is_included(self) -> None:
@@ -170,6 +186,47 @@ class TestScenePrompt:
     def test_aspect_ratio_is_reflected(self) -> None:
         prompt = build_scene_prompt(CLIMBING, CartoonSettings(aspect_ratio="16:9"))
         assert "16:9" in prompt
+
+
+class TestCharacterGender:
+    def test_boy_settings_name_the_character_jack(self) -> None:
+        prompt = build_scene_prompt(
+            PLANTING, CartoonSettings(character_gender=CharacterGender.BOY)
+        )
+        assert "Jack" in prompt
+        assert "Jane" not in prompt
+
+    def test_girl_settings_name_the_character_jane(self) -> None:
+        prompt = build_scene_prompt(
+            PLANTING, CartoonSettings(character_gender=CharacterGender.GIRL)
+        )
+        assert "Jane" in prompt
+        assert "Jack" not in prompt
+
+    def test_match_defers_to_the_stated_photo_gender(self) -> None:
+        settings = CartoonSettings(
+            character_gender=CharacterGender.MATCH, photo_gender=PhotoGender.GIRL
+        )
+        prompt = build_scene_prompt(CLIMBING, settings)
+        assert "Jane" in prompt
+        assert "Jack" not in prompt
+
+    def test_pronouns_follow_the_name(self) -> None:
+        girl = build_scene_prompt(
+            PLANTING, CartoonSettings(character_gender=CharacterGender.GIRL)
+        )
+        boy = build_scene_prompt(
+            PLANTING, CartoonSettings(character_gender=CharacterGender.BOY)
+        )
+        assert " her " in girl
+        assert " her " not in boy
+
+    def test_caption_and_prompt_agree_on_the_name(self) -> None:
+        settings = CartoonSettings(character_gender=CharacterGender.GIRL)
+        scene = render_scene(PLANTING, settings)
+        prompt = build_scene_prompt(PLANTING, settings)
+        assert scene.caption in prompt
+        assert scene.title.startswith("Jane")
 
 
 class TestPromptHygiene:

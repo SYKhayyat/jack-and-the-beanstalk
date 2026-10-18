@@ -8,7 +8,8 @@ changes anywhere else in the app.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
 
 from app.prompt_data import prompt_text
 
@@ -52,6 +53,27 @@ class Scene:
             return ""
         items = ", ".join(f'"{item}"' for item in self.must_include)
         return _CHECKLIST_TEMPLATE.format(items=items)
+
+    def formatted(self, substitutions: Mapping[str, str]) -> Scene:
+        """A copy with ``{name}``/``{pronoun}`` placeholders filled in.
+
+        The prose lives in TOML with placeholders because the character is Jack
+        or Jane depending on the user's gender choice; this is where that choice
+        is applied, so the prompt and the burned caption stay in step.
+        """
+
+        def fill(text: str) -> str:
+            return text.format(**substitutions)
+
+        return replace(
+            self,
+            title=fill(self.title),
+            caption=fill(self.caption),
+            subject_action=fill(self.subject_action),
+            environment=fill(self.environment),
+            must_include=tuple(fill(item) for item in self.must_include),
+            must_avoid=tuple(fill(item) for item in self.must_avoid),
+        )
 
 
 SCENES: tuple[Scene, ...] = tuple(

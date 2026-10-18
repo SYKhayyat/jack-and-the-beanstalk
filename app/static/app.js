@@ -36,6 +36,9 @@ const preview = document.getElementById("preview");
 const intensity = document.getElementById("cartoon_intensity");
 const intensityOutput = document.getElementById("intensity-output");
 
+const characterGender = document.getElementById("character_gender");
+const photoGenderControl = document.getElementById("photo-gender-control");
+
 const state = {
   generationId: null,
   calls: 0,
@@ -52,6 +55,15 @@ intensity.addEventListener("input", () => {
 oneStep.addEventListener("change", () => {
   submit.textContent = oneStep.checked ? "Make both images" : "Step 1 · Cartoonify me";
 });
+
+/* The app cannot tell a boy from a girl in a photo, so when the user asks to
+   "match the photo" we must ask which it is. */
+function syncPhotoGender() {
+  photoGenderControl.classList.toggle("hidden", characterGender.value !== "match");
+}
+
+characterGender.addEventListener("change", syncPhotoGender);
+syncPhotoGender();
 
 photoInput.addEventListener("change", () => {
   const file = photoInput.files && photoInput.files[0];

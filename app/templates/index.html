@@ -108,10 +108,18 @@
             </select>
           </div>
           <div class="control">
-            <label for="gender_presentation">Gender presentation</label>
-            <select id="gender_presentation" name="gender_presentation">
-              {% for value, label in genders %}<option value="{{ value }}" {% if value == defaults.gender_presentation %}selected{% endif %}>{{ label }}</option>{% endfor %}
+            <label for="character_gender">Which should the character be?</label>
+            <select id="character_gender" name="character_gender">
+              {% for value, label in genders %}<option value="{{ value }}" {% if value == defaults.character_gender %}selected{% endif %}>{{ label }}</option>{% endfor %}
             </select>
+            <p class="field-help">Boy is Jack; girl is Jane.</p>
+          </div>
+          <div class="control" id="photo-gender-control">
+            <label for="photo_gender">The photo shows a</label>
+            <select id="photo_gender" name="photo_gender">
+              {% for value, label in photo_genders %}<option value="{{ value }}" {% if value == defaults.photo_gender %}selected{% endif %}>{{ label }}</option>{% endfor %}
+            </select>
+            <p class="field-help">Only used when you chose “Match the photo”.</p>
           </div>
           <div class="control">
             <label for="skin_tone">Skin tone</label>

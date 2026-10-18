@@ -33,7 +33,7 @@ from app.services.image_providers.base import (
     ImageRequest,
     ProviderError,
 )
-from app.services.prompts import build_cartoon_prompt, build_scene_prompt
+from app.services.prompts import build_cartoon_prompt, build_scene_prompt, render_scene
 from app.services.storage import Draft, GenerationStore, StoredGeneration
 
 __all__ = [
@@ -183,6 +183,9 @@ class GenerationPipeline:
         self, *, draft: Draft, scene: Scene, persist: bool = True
     ) -> ComposedGeneration:
         """Pass 2: the cartoon portrait (plus the original photo) into a scene."""
+        # Resolve the character's name and pronouns for this draft before either
+        # the prompt or the burned caption is produced, so they cannot disagree.
+        scene = render_scene(scene, draft.settings)
         prompt = build_scene_prompt(scene, draft.settings)
 
         logger.info(

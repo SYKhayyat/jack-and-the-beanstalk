@@ -36,7 +36,8 @@ class TestIndexPage:
             'name="cartoon_intensity"',
             'name="cartoon_style"',
             'name="likeness_strength"',
-            'name="gender_presentation"',
+            'name="character_gender"',
+            'name="photo_gender"',
             'name="skin_tone"',
             'name="apparent_age"',
             'name="hair_style"',
@@ -114,11 +115,19 @@ class TestGenerateEndpoint:
         assert payload["settings"]["skin_tone"] == "deep_brown"
 
     def test_settings_change_the_prompt(self, client: TestClient) -> None:
-        form = generate_form(cartoon_style="manga", gender_presentation="feminine")
+        form = generate_form(cartoon_style="manga", character_gender="girl")
         prompts = client.post("/api/generate", **multipart(form)).json()["prompts"]
 
         assert "screentone" in prompts["cartoon"].lower()
-        assert "feminine" in prompts["scene"]
+        assert "girl" in prompts["scene"]
+
+    def test_girl_settings_produce_jane_and_her_pronouns(self, client: TestClient) -> None:
+        form = generate_form(character_gender="girl")
+        payload = client.post("/api/generate", **multipart(form)).json()
+
+        assert payload["scene_title"].startswith("Jane")
+        assert payload["caption"].startswith("Jane is planting the seeds.")
+        assert "Jane" in payload["prompts"]["scene"]
 
     def test_returns_both_prompts(self, client: TestClient) -> None:
         response = client.post("/api/generate", **multipart(generate_form()))

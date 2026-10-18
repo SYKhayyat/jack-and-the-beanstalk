@@ -25,12 +25,13 @@ from app.models.feedback import RejectionFeedback
 from app.models.settings import (
     ApparentAge,
     AspectRatio,
+    CharacterGender,
     Expression,
-    GenderPresentation,
     HairColour,
     HairStyle,
     LikenessStrength,
     Outfit,
+    PhotoGender,
     PortraitBackground,
     SkinTone,
 )
@@ -40,6 +41,7 @@ __all__ = [
     "NEGATIVE_PROMPT_TAIL",
     "build_cartoon_prompt",
     "build_scene_prompt",
+    "render_scene",
 ]
 
 _DATA = prompt_text()
@@ -67,8 +69,16 @@ _AGE_DESCRIPTIONS: dict[ApparentAge, str] = {
     age: _DATA["ages"][age.value] for age in ApparentAge
 }
 
-_GENDER_DESCRIPTIONS: dict[GenderPresentation, str] = {
-    gender: _DATA["genders"][gender.value] for gender in GenderPresentation
+_GENDER_DESCRIPTIONS: dict[CharacterGender, str] = {
+    gender: _DATA["genders"][gender.value] for gender in CharacterGender
+}
+
+_NAMES: dict[PhotoGender, str] = {
+    gender: _DATA["names"][gender.value] for gender in PhotoGender
+}
+
+_PRONOUNS: dict[PhotoGender, dict[str, str]] = {
+    gender: _DATA["pronouns"][gender.value] for gender in PhotoGender
 }
 
 _SKIN_DESCRIPTIONS: dict[SkinTone, str] = {
@@ -140,12 +150,24 @@ def _accessory_directives(settings: CartoonSettings) -> list[str]:
     return [glasses, facial_hair]
 
 
+def _substitutions(settings: CartoonSettings) -> dict[str, str]:
+    """The name and pronouns the scene prose is written with, for this setting."""
+    gender = settings.effective_gender
+    return {"name": _NAMES[gender], **_PRONOUNS[gender]}
+
+
+def render_scene(scene: Scene, settings: CartoonSettings) -> Scene:
+    """Fill a scene's name/pronoun placeholders for the chosen gender."""
+    return scene.formatted(_substitutions(settings))
+
+
 def _common_character_block(settings: CartoonSettings) -> str:
     """The lines describing *who the character is*, shared by both passes."""
     return " ".join(
         [
             _AGE_DESCRIPTIONS[settings.apparent_age],
-            _GENDER_DESCRIPTIONS[settings.gender_presentation],
+            _GENDER_DESCRIPTIONS[settings.character_gender],
+            _ASSEMBLY["character_name"].format(**_substitutions(settings)),
             _SKIN_DESCRIPTIONS[settings.skin_tone],
             _HAIR_STYLE_DESCRIPTIONS[settings.hair_style],
             _HAIR_COLOUR_DESCRIPTIONS[settings.hair_color],
@@ -197,10 +219,14 @@ def build_scene_prompt(scene: Scene, settings: CartoonSettings) -> str:
     The first reference image is the cartoon portrait from pass 1; the second,
     when supplied, is the original photograph. They are the same person, and the
     model should treat them as a matched pair.
+
+    The scene's name/pronoun placeholders are resolved here, so the prompt always
+    matches the chosen character even if the caller passes the raw catalogue entry.
     """
+    scene = render_scene(scene, settings)
     style_text = _STYLE_DESCRIPTIONS[settings.cartoon_style]
     sections = [
-        _ASSEMBLY["task_scene"],
+        _ASSEMBLY["task_scene"].format(**_substitutions(settings)),
         settings.identity_directive(),
         _LIKENESS_EMPHASIS[settings.likeness_strength],
         # Repeated rather than assumed: this is what models drop when the scene

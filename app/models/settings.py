@@ -37,13 +37,25 @@ class ApparentAge(StrEnum):
     ADULT = "adult"
 
 
-class GenderPresentation(StrEnum):
-    """Gender presentation of the cartoon character."""
+class CharacterGender(StrEnum):
+    """Which gender the AI should draw the character as.
 
-    AS_UPLOADED = "as_uploaded"
-    FEMININE = "feminine"
-    MASCULINE = "masculine"
-    ANDROGYNOUS = "androgynous"
+    ``MATCH`` means "the same as the person in the photo"; because the app cannot
+    infer a child's gender from pixels, that choice requires ``photo_gender`` to
+    say which it is. Either way the answer resolves to a boy or a girl, which is
+    what names the character (Jack or Jane) and picks the pronouns.
+    """
+
+    MATCH = "match"
+    BOY = "boy"
+    GIRL = "girl"
+
+
+class PhotoGender(StrEnum):
+    """What the uploaded photo shows, asked only when ``CharacterGender.MATCH``."""
+
+    BOY = "boy"
+    GIRL = "girl"
 
 
 class SkinTone(StrEnum):
@@ -190,7 +202,8 @@ class CartoonSettings(BaseModel):
 
     # --- who the character is ---
     apparent_age: ApparentAge = ApparentAge.AS_UPLOADED
-    gender_presentation: GenderPresentation = GenderPresentation.AS_UPLOADED
+    character_gender: CharacterGender = CharacterGender.MATCH
+    photo_gender: PhotoGender = PhotoGender.BOY
     skin_tone: SkinTone = SkinTone.AS_UPLOADED
 
     # --- details ---
@@ -209,13 +222,21 @@ class CartoonSettings(BaseModel):
         directive: str = prompt_text()["identity"]["directive"]
         return directive
 
+    @property
+    def effective_gender(self) -> PhotoGender:
+        """The resolved gender: which name and pronouns the prompts must use."""
+        if self.character_gender is CharacterGender.MATCH:
+            return self.photo_gender
+        return PhotoGender(self.character_gender.value)
+
 
 __all__ = [
     "ApparentAge",
     "AspectRatio",
     "CartoonSettings",
     "CartoonStyle",
-    "GenderPresentation",
+    "CharacterGender",
     "LikenessStrength",
+    "PhotoGender",
     "SkinTone",
 ]
