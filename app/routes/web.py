@@ -66,6 +66,7 @@ def index(request: Request, container: ContainerDep) -> HTMLResponse:
             ],
             "max_upload_mb": container.settings.max_upload_mb,
             "provider": container.provider_status(),
+            "auth_enabled": container.settings.auth_enabled,
         },
     )
 

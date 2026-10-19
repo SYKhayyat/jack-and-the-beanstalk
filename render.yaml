@@ -36,6 +36,12 @@ services:
       - key: OPENAI_API_KEY
         sync: false
 
+      # The shared password in front of the app. Paste it into the Render
+      # dashboard when prompted; leaving it unset makes the app open to
+      # anyone who finds the URL, and every generation costs money.
+      - key: APP_PASSWORD
+        sync: false
+
       # Cheapest configuration OpenAI publishes: ~$0.0059 per image call.
       - key: OPENAI_MODEL
         value: gpt-image-2.5-flare

@@ -73,6 +73,29 @@ class Settings(BaseSettings):
 
     # --- app ---
     app_env: str = Field(default="development")
+    app_password: str = Field(
+        default="",
+        description=(
+            "Shared password required to use the app. Empty means the app is "
+            "open to anyone — fine locally, reckless in production, because "
+            "every generation costs money."
+        ),
+    )
+    app_session_max_age_days: int = Field(
+        default=7,
+        ge=1,
+        le=365,
+        description="How long a successful login stays valid.",
+    )
+    app_login_max_attempts: int = Field(
+        default=8,
+        ge=1,
+        le=100,
+        description=(
+            "Wrong passwords allowed per client in a quarter of an hour before "
+            "that client is locked out of the login form."
+        ),
+    )
     max_upload_mb: int = Field(default=10, ge=1, le=50)
     generation_timeout_seconds: int = Field(
         default=600,
@@ -117,6 +140,11 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.app_env.lower() in {"production", "prod"}
+
+    @property
+    def auth_enabled(self) -> bool:
+        """Whether a password is required to reach the app."""
+        return bool(self.app_password)
 
     @property
     def max_upload_bytes(self) -> int:

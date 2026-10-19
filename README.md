@@ -44,6 +44,33 @@ IMAGE_PROVIDER=openai
 OPENAI_API_KEY=your-key-here
 ```
 
+## Putting a password in front of the app
+
+The app costs money per image, so it should not be open to everyone who finds
+the URL. Set one shared password and every visitor has to log in first:
+
+```bash
+# .env
+APP_PASSWORD=a-good-long-password
+```
+
+- The password is one value for everyone. There are no accounts, no invites
+  and no per-person identity — just "are you one of us?".
+- A successful login sets an `HttpOnly` cookie that is valid for
+  `APP_SESSION_MAX_AGE_DAYS` (7 by default). `Log out` in the header clears it.
+- The cookie is signed with a key derived from the password, so **changing
+  `APP_PASSWORD` logs everyone out**, including you.
+- API and media requests without a session get a `401`; pages get redirected
+  to `/login`. `/healthz` and `/static` stay open, because the platform polls
+  the health check and the login page needs its CSS.
+- Eight wrong passwords in fifteen minutes locks that client out of the login
+  form (`APP_LOGIN_MAX_ATTEMPTS`).
+- Leave `APP_PASSWORD` empty and the gate is open. That is fine for local
+  development and reckless for anything else.
+
+On Render the blueprint asks for `APP_PASSWORD` when you apply it, so the
+password is set in the dashboard and never lands in the repo.
+
 ## Choosing an API key
 
 Everything below was checked against vendor pricing pages on **2026-10-16**.
@@ -192,6 +219,7 @@ app/
 ├── container.py          # composition root — the one module that wires everything
 ├── errors.py             # domain exceptions → HTTP status codes
 ├── dependencies.py       # FastAPI Depends accessors
+├── auth.py               # the shared-password gate: password check, signed cookie
 ├── prompts.toml          # THE PROMPTS — every word sent to the model, as data
 ├── prompt_data.py        # the one loader for prompts.toml
 ├── models/               # MODEL: scenes, cartoon settings, results
@@ -210,7 +238,7 @@ app/
 │       ├── openai_provider.py #   the default real backend
 │       ├── gemini.py     #         the fallback backend
 │       └── registry.py   #         name → class
-├── routes/               # CONTROLLER: web.py, api.py, media.py
+├── routes/               # CONTROLLER: web.py, api.py, media.py, auth.py
 ├── templates/index.html  # VIEW
 ├── routes/settings_form.py # settings form fields, shared by both endpoints
 ├── models/feedback.py     #     rejection chips and their prompt clauses
@@ -558,7 +586,8 @@ The repo ships a blueprint, so this is short:
 2. In Render: **New → Blueprint**, pick the repo, apply. `render.yaml` declares
    the build and start commands and the health check.
 3. Render will prompt for `OPENAI_API_KEY` — paste it there. That is the only
-   place it belongs. It is never in the repo.
+   place it belongs. It is never in the repo. It will also prompt for
+   `APP_PASSWORD` — paste in the shared password that guards the app.
 4. Leave `IMAGE_PROVIDER=mock` for the first deploy so it boots green. Then set
    `IMAGE_PROVIDER=openai` in the dashboard and save; Render redeploys. The
    blueprint uses the cheap `gpt-image-2.5-flare` model at low quality.
@@ -583,6 +612,9 @@ before scaling beyond a classroom deployment.
 | `GEMINI_API_KEY` | *(empty)* | Required for `gemini` |
 | `GEMINI_MODEL` | `gemini-3.1-flash-lite-image` | Keep it cheap. `gemini-3.1-flash-image` is the higher-quality option. |
 | `APP_ENV` | `development` | `production` raises the log level |
+| `APP_PASSWORD` | *(empty)* | Shared password required to use the app. Empty means the app is open. |
+| `APP_SESSION_MAX_AGE_DAYS` | `7` | How long one successful login stays valid. Changing the password invalidates every session. |
+| `APP_LOGIN_MAX_ATTEMPTS` | `8` | Wrong passwords per client before a 15-minute lockout. |
 | `MAX_UPLOAD_MB` | `10` | Enforced before decoding |
 | `GENERATION_TIMEOUT_SECONDS` | `600` | One budget per request: queue + both model calls. Also applied to the provider's HTTP client. |
 | `MAX_CONCURRENT_GENERATIONS` | `2` | Admission control per process. Beyond this, requests queue and then get 429. |

@@ -14,11 +14,13 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from app.auth import AuthGate
 from app.config import Settings, get_settings
 from app.container import build_container
 from app.errors import register_exception_handlers
 from app.redaction import install_secret_redaction
-from app.routes import api, media, web
+from app.routes import api, auth, media, web
+from app.routes.auth import install_auth_gate
 from app.services.image_providers.base import ImageProvider
 
 __all__ = ["create_app"]
@@ -57,18 +59,26 @@ def create_app(
     app.state.settings = resolved
     app.state.container = build_container(resolved, provider=provider)
     app.state.templates = Jinja2Templates(directory=TEMPLATES_DIR)
+    app.state.gate = AuthGate(
+        password=resolved.app_password,
+        session_max_age_seconds=resolved.app_session_max_age_days * 24 * 60 * 60,
+        max_attempts=resolved.app_login_max_attempts,
+    )
 
     register_exception_handlers(app)
     app.include_router(web.router)
     app.include_router(api.router)
     app.include_router(media.router)
+    app.include_router(auth.router)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    install_auth_gate(app, app.state.gate)
 
     logger.info(
-        "app.ready provider=%s model=%s env=%s",
+        "app.ready provider=%s model=%s env=%s auth=%s",
         app.state.container.provider.name,
         resolved.gemini_model if resolved.image_provider == "gemini" else "-",
         resolved.app_env,
+        "password" if resolved.auth_enabled else "open",
     )
     return app
 
@@ -84,4 +94,6 @@ def _configure_logging(settings: Settings) -> None:
     root.setLevel(level)
     # Last line of defence: even if a secret reaches a logger some other way, it
     # is scrubbed before the handler formats the record.
-    install_secret_redaction((settings.openai_api_key, settings.gemini_api_key))
+    install_secret_redaction(
+        (settings.openai_api_key, settings.gemini_api_key, settings.app_password)
+    )

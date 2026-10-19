@@ -16,6 +16,11 @@
         <span class="hint">(mock mode: no API calls, placeholder images)</span>
       {% endif %}
     </p>
+    {% if auth_enabled %}
+      <form class="logout-form" method="post" action="/logout">
+        <button type="submit">Log out</button>
+      </form>
+    {% endif %}
   </header>
 
   <main>
