@@ -127,7 +127,7 @@ export function syncIntensityOutput() {
 export function syncSubmitLabel() {
   elements.submit.textContent = elements.oneStep.checked
     ? "Make both images"
-    : "Step 1 · Cartoonify me";
+    : "Cartoonify me";
 }
 
 /* The app cannot tell a boy from a girl in a photo, so when the user asks to
