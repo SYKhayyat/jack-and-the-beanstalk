@@ -1,394 +1,316 @@
-/* Front-end controller for the two-step review flow.
-   Deliberately dependency-free — no build step, so Render serves static files
-   straight from the repo.
+/* Controller — event wiring and orchestration only. No DOM reads or writes of
+   its own (element references come from the view's exported map), no direct
+   model clumps: every state change goes through the state module's functions.
+   The API client and the photo sources are passed in, so fakes can replace
+   any of them without touching another module. */
 
-   The flow: cartoonify → review (compare, pick, approve or reject with a reason)
-   → compose. Keeping the two API calls apart is the point: a likeness you
-   dislike costs one call, not two, and putting an approved portrait into the
-   other scene costs one call. */
-"use strict";
+import {
+  addAttempt,
+  addCalls,
+  beginRequest,
+  chooseCandidate,
+  clearPhoto,
+  createState,
+  endRequest,
+  resetGeneration,
+  setPhoto,
+} from "./state.js";
+import { createApiClient } from "./api.js";
+import { preparePhoto, UnreadableImageError } from "./downscale.js";
+import {
+  createCameraSource,
+  createFilePickerSource,
+  isTouchDevice,
+} from "./photo.js";
+import {
+  applyCaptureAttribute,
+  clearPhotoPreview,
+  clearReasonChips,
+  chooseOtherScene,
+  elements,
+  getChosenScene,
+  getSelectedReasons,
+  openLightbox,
+  pageLimits,
+  readSettings,
+  renderCartoon,
+  renderPhotoPreview,
+  renderScene,
+  resetStages,
+  setBusyCartoon,
+  setBusyScene,
+  setGenerationControlsDisabled,
+  showCameraMessage,
+  showCameraPane,
+  isCameraPaneOpen,
+  showCartoonError,
+  showPhotoMessage,
+  showSceneError,
+  syncIntensityOutput,
+  syncPhotoGender,
+  syncSubmitLabel,
+  toggleRejectBody,
+  zoomButtons,
+  startOverButtons,
+} from "./view.js";
 
-const form = document.getElementById("generate-form");
-const submit = document.getElementById("submit");
-const rejectButton = document.getElementById("reject-cartoon");
-const approveButton = document.getElementById("approve-cartoon");
-const otherSceneButton = document.getElementById("other-scene");
-const startOverButton = document.getElementById("start-over");
-const oneStep = document.getElementById("one_step");
+const model = createState();
+const api = createApiClient();
 
-const cartoonStage = document.getElementById("cartoon-stage");
-const sceneStage = document.getElementById("scene-stage");
-const cartoonStatus = document.getElementById("cartoon-status");
-const sceneStatus = document.getElementById("scene-status");
-const cartoonCost = document.getElementById("cartoon-cost");
-const sceneCost = document.getElementById("scene-cost");
-const candidatePicker = document.getElementById("candidate-picker");
-const candidateStrip = document.getElementById("candidate-strip");
-const filmstripBlock = document.getElementById("filmstrip-block");
-const filmstrip = document.getElementById("filmstrip");
-const lightbox = document.getElementById("lightbox");
-const lightboxImage = document.getElementById("lightbox-image");
-const lightboxCaption = document.getElementById("lightbox-caption");
+const filePickerSource = createFilePickerSource(elements.photoInput);
+const cameraSource = createCameraSource(elements.cameraVideo);
 
-const photoInput = document.getElementById("photo");
-const previewWrap = document.getElementById("preview-wrap");
-const preview = document.getElementById("preview");
-const intensity = document.getElementById("cartoon_intensity");
-const intensityOutput = document.getElementById("intensity-output");
+/* --- photo intake (the PhotoSource seam) ----------------------------------- */
 
-const characterGender = document.getElementById("character_gender");
-const photoGenderControl = document.getElementById("photo-gender-control");
-
-const state = {
-  generationId: null,
-  calls: 0,
-  requestInFlight: false,
-  candidateUrls: [],
-  chosen: 0,
-  attempts: [],
-};
-
-intensity.addEventListener("input", () => {
-  intensityOutput.textContent = intensity.value;
-});
-
-oneStep.addEventListener("change", () => {
-  submit.textContent = oneStep.checked ? "Make both images" : "Step 1 · Cartoonify me";
-});
-
-/* The app cannot tell a boy from a girl in a photo, so when the user asks to
-   "match the photo" we must ask which it is. */
-function syncPhotoGender() {
-  photoGenderControl.classList.toggle("hidden", characterGender.value !== "match");
+/* Every source funnels through here: prepare (decode/validate/downscale),
+   remember in the model, and render the exact blob that will be uploaded. */
+async function acceptPhoto(sourceBlob, { fromCamera = false, sourceName = null } = {}) {
+  showPhotoMessage("Checking and shrinking your photo…");
+  try {
+    const prepared = await preparePhoto(sourceBlob, {
+      maxBytes: pageLimits.maxUploadBytes,
+      force: fromCamera,
+    });
+    const name = sourceName || (prepared.scaled ? "photo.jpg" : (sourceBlob && sourceBlob.name) || "photo.jpg");
+    setPhoto(model, prepared.blob, name);
+    renderPhotoPreview(prepared.blob);
+    showPhotoMessage("");
+  } catch (error) {
+    if (error instanceof UnreadableImageError) {
+      showPhotoMessage(
+        "That file could not be read as an image — try a JPEG, PNG or WEBP photo.",
+        "error",
+      );
+    } else {
+      showPhotoMessage(
+        "Something went wrong while preparing that photo — try another one.",
+        "error",
+      );
+    }
+  }
 }
 
-characterGender.addEventListener("change", syncPhotoGender);
-syncPhotoGender();
-
-photoInput.addEventListener("change", () => {
-  const file = photoInput.files && photoInput.files[0];
+elements.photoInput.addEventListener("change", () => {
+  if (isCameraPaneOpen()) {
+    closeCamera();
+  }
+  const file = filePickerSource.getBlob();
   if (!file) {
-    previewWrap.classList.add("hidden");
-    reset();
+    clearPhoto(model);
+    clearPhotoPreview();
+    showPhotoMessage("");
     return;
   }
-  preview.src = URL.createObjectURL(file);
-  previewWrap.classList.remove("hidden");
-  document.getElementById("original-thumb").src = preview.src;
+  acceptPhoto(file);
 });
 
-/* Submit: either the whole thing in one go, or step 1 only. */
-form.addEventListener("submit", (event) => {
+/* --- camera ------------------------------------------------------------------ */
+
+function cameraErrorMessage(error) {
+  const name = error && error.name;
+  if (name === "NotAllowedError" || name === "SecurityError") {
+    return "Camera permission was denied. Allow it in the browser, or choose a photo file instead.";
+  }
+  if (name === "NotFoundError" || name === "OverconstrainedError") {
+    return "No camera was found. Choose a photo file instead.";
+  }
+  if (name === "NotSupportedError") {
+    return (
+      "This browser cannot open the camera on this page (it needs HTTPS or " +
+      "localhost). On a phone, the Choose-file button opens the camera directly."
+    );
+  }
+  return "The camera could not be opened. Choose a photo file instead.";
+}
+
+async function openCamera() {
+  showCameraMessage("");
+  showCameraPane(true);
+  try {
+    await cameraSource.open();
+  } catch (error) {
+    closeCamera();
+    showCameraMessage(cameraErrorMessage(error));
+  }
+}
+
+/* Stops every track, so the camera indicator light genuinely goes off. */
+function closeCamera() {
+  cameraSource.close();
+  showCameraPane(false);
+}
+
+async function captureFromCamera() {
+  showCameraMessage("");
+  try {
+    const blob = await cameraSource.capture();
+    closeCamera();
+    await acceptPhoto(blob, { fromCamera: true, sourceName: "camera.jpg" });
+  } catch (error) {
+    showCameraMessage(
+      `${error.message} Try once more, or choose a photo file instead.`,
+      );
+  }
+}
+
+elements.useCamera.addEventListener("click", openCamera);
+elements.cameraShutter.addEventListener("click", captureFromCamera);
+elements.cameraCancel.addEventListener("click", closeCamera);
+
+if (isTouchDevice()) applyCaptureAttribute();
+
+/* --- plan-level toggles ------------------------------------------------------ */
+
+elements.intensity.addEventListener("input", syncIntensityOutput);
+syncIntensityOutput();
+
+elements.oneStep.addEventListener("change", syncSubmitLabel);
+syncSubmitLabel();
+
+elements.characterGender.addEventListener("change", syncPhotoGender);
+syncPhotoGender();
+
+/* --- submit and review actions ------------------------------------------------ */
+
+elements.form.addEventListener("submit", (event) => {
   event.preventDefault();
   if (!hasPhoto()) return;
-  if (oneStep.checked) {
+  if (elements.oneStep.checked) {
     runOneStep();
     return;
   }
   runCartoonify([]);
 });
 
-/* Retry with the ticked reasons. With nothing ticked this is just another
-   attempt at the same settings, which is why there is no separate retry button. */
-rejectButton.addEventListener("click", () => {
-  if (!hasPhoto()) return;
-  const reasons = selectedReasons();
-  runCartoonify(reasons);
-});
-
-approveButton.addEventListener("click", () => {
-  if (!state.generationId) {
-    showCartoonError("Cartoonify first, then approve.");
-    return;
-  }
-  runCompose(currentScene());
-});
-
-otherSceneButton.addEventListener("click", () => {
-  const other = form.querySelector('input[name="scene"]:not(:checked)');
-  if (!other) return;
-  other.checked = true;
-  runCompose(currentScene());
-});
-
-startOverButton.addEventListener("click", () => {
-  reset();
-  form.scrollIntoView({ behavior: "smooth", block: "start" });
-});
-
-/* Click either image to enlarge it. */
-document.querySelectorAll(".zoom").forEach((button) => {
-  button.addEventListener("click", () => {
-    const which = button.dataset.zoom;
-    openLightbox(which === "original" ? document.getElementById("original-thumb").src
-                                       : state.candidateUrls[state.chosen],
-                 which === "original" ? "The photo you uploaded" : "Your cartoon");
-  });
-});
-
-document.getElementById("lightbox-close").addEventListener("click", () => lightbox.close());
-lightbox.addEventListener("click", (event) => {
-  if (event.target === lightbox) lightbox.close();
-});
-
-function openLightbox(src, caption) {
-  if (!src) return;
-  lightboxImage.src = src;
-  lightboxCaption.textContent = caption;
-  lightbox.showModal();
-}
-
 function hasPhoto() {
-  if (photoInput.files && photoInput.files.length) return true;
-  showCartoonError("Please choose a photo first.");
+  if (model.photo && model.photo.blob) return true;
+  showPhotoMessage("Please choose a photo first.", "error");
   return false;
 }
 
-function currentScene() {
-  return form.querySelector('input[name="scene"]:checked').value;
-}
+/* Retry with the ticked reasons. With nothing ticked this is just another
+   attempt at the same settings, which is why there is no separate retry button. */
+elements.rejectButton.addEventListener("click", () => {
+  if (!hasPhoto()) return;
+  runCartoonify(getSelectedReasons());
+});
 
-function selectedReasons() {
-  return Array.from(
-    document.querySelectorAll('#reject-chips input[name="reason"]:checked'),
-  ).map((input) => input.value);
-}
+/* "Not right" only reveals the chips — the choosing is the user's job. */
+elements.rejectToggle.addEventListener("click", () => toggleRejectBody());
 
-function reset() {
-  state.generationId = null;
-  state.calls = 0;
-  state.candidateUrls = [];
-  state.chosen = 0;
-  state.attempts = [];
-  cartoonStage.classList.add("hidden");
-  sceneStage.classList.add("hidden");
-  filmstripBlock.classList.add("hidden");
-  clearChips();
-}
+elements.approveButton.addEventListener("click", () => {
+  if (!model.generationId) {
+    showCartoonError("Cartoonify first, then approve.");
+    return;
+  }
+  runCompose(getChosenScene());
+});
 
-/* The photo and every setting except the scene and the chips. */
-function settingsPayload() {
-  const payload = new FormData(form);
-  payload.delete("photo");
-  payload.delete("scene");
-  payload.delete("one_step");
-  payload.delete("reason");
-  return payload;
-}
+elements.otherSceneButton.addEventListener("click", () => {
+  const scene = chooseOtherScene();
+  if (!scene) return;
+  runCompose(scene);
+});
+
+[startOverButtons()].flat().forEach((button) => {
+  button.addEventListener("click", () => {
+    resetGeneration(model);
+    clearReasonChips();
+    resetStages();
+    elements.form.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+});
+
+/* Click either compare image to enlarge it. */
+zoomButtons().forEach((button) => {
+  button.addEventListener("click", () => {
+    const which = button.dataset.zoom;
+    openLightbox(
+      which === "original" ? elements.originalThumb.src : model.candidateUrls[model.chosen],
+      which === "original" ? "The photo you uploaded" : "Your cartoon",
+    );
+  });
+});
+
+elements.lightboxClose.addEventListener("click", () => elements.lightbox.close());
+elements.lightbox.addEventListener("click", (event) => {
+  if (event.target === elements.lightbox) elements.lightbox.close();
+});
+
+/* --- the two-step flow --------------------------------------------------------- */
 
 async function runCartoonify(reasons) {
-  if (state.requestInFlight) return;
-  const attemptNumber = state.attempts.length + 1;
-  state.requestInFlight = true;
+  if (model.requestInFlight) return;
+  beginRequest(model);
+  const attemptNumber = model.attempts.length + 1;
   setGenerationControlsDisabled(true);
-  setBusy(cartoonStatus, cartoonStage, "Cartoonifying you…");
+  setBusyCartoon("Cartoonifying you…");
 
   try {
-    const body = settingsPayload();
-    body.append("photo", photoInput.files[0]);
+    const body = readSettings();
+    body.append("photo", model.photo.blob, model.photo.name);
     reasons.forEach((reason) => body.append("reason", reason));
 
-    const response = await fetch("/api/cartoonify", { method: "POST", body });
-    const data = await readJson(response);
-    renderCartoon(data, attemptNumber);
+    const data = await api.cartoonify(body);
+    model.generationId = data.generation_id;
+    addCalls(model, data.billed_image_count || data.candidate_count || 1);
+    model.candidateUrls = data.images.candidate_urls || [data.images.cartoon_url];
+    chooseCandidate(model, 0);
+    addAttempt(model, {
+      url: model.candidateUrls[0],
+      style: data.settings.cartoon_style,
+      intensity: data.settings.cartoon_intensity,
+    });
+    renderCartoon(data, model, attemptNumber, (index) => chooseCandidate(model, index));
   } catch (error) {
     showCartoonError(error.message);
   } finally {
-    state.requestInFlight = false;
+    endRequest(model);
     setGenerationControlsDisabled(false);
   }
 }
 
 async function runCompose(scene) {
-  if (state.requestInFlight || !state.generationId) return;
-  state.requestInFlight = true;
+  if (model.requestInFlight || !model.generationId) return;
+  beginRequest(model);
   setGenerationControlsDisabled(true);
-  setBusy(sceneStatus, sceneStage, `Placing you in the scene: ${scene}…`);
+  setBusyScene(`Placing you in the scene: ${scene}…`);
 
   try {
     const body = new FormData();
-    body.append("generation_id", state.generationId);
+    body.append("generation_id", model.generationId);
     body.append("scene", scene);
-    body.append("candidate", String(state.chosen));
+    body.append("candidate", String(model.chosen));
 
-    const response = await fetch("/api/compose", { method: "POST", body });
-    const data = await readJson(response);
-    renderScene(data);
+    const data = await api.compose(body);
+    addCalls(model, 1);
+    renderScene(data, model, false);
   } catch (error) {
     showSceneError(error.message);
   } finally {
-    state.requestInFlight = false;
+    endRequest(model);
     setGenerationControlsDisabled(false);
   }
 }
 
 async function runOneStep() {
-  if (state.requestInFlight) return;
-  state.requestInFlight = true;
+  if (model.requestInFlight) return;
+  beginRequest(model);
   setGenerationControlsDisabled(true);
-  setBusy(cartoonStatus, cartoonStage, "Making both images, one step…");
+  setBusyCartoon("Making both images, one step…");
   try {
-    const body = settingsPayload();
-    body.append("photo", photoInput.files[0]);
-    body.append("scene", currentScene());
+    const body = readSettings();
+    body.append("photo", model.photo.blob, model.photo.name);
+    body.append("scene", getChosenScene());
 
-    const response = await fetch("/api/generate", { method: "POST", body });
-    const data = await readJson(response);
-    state.calls = data.billed_image_count || 2;
-    state.generationId = data.generation_id;
-    renderScene(data, true);
+    const data = await api.generate(body);
+    addCalls(model, data.billed_image_count || 2);
+    model.generationId = data.generation_id;
+    renderScene(data, model, true);
   } catch (error) {
     showCartoonError(error.message);
   } finally {
-    state.requestInFlight = false;
+    endRequest(model);
     setGenerationControlsDisabled(false);
   }
-}
-
-async function readJson(response) {
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(data.detail || `Request failed (${response.status}).`);
-  }
-  return data;
-}
-
-function renderCartoon(data, attemptNumber) {
-  state.generationId = data.generation_id;
-  state.calls += data.billed_image_count || data.candidate_count || 1;
-  state.candidateUrls = data.images.candidate_urls || [data.images.cartoon_url];
-  state.chosen = 0;
-
-  document.getElementById("cartoon-image").src = state.candidateUrls[0];
-  document.getElementById("cartoon-prompt").textContent = data.prompts.cartoon;
-  cartoonCost.textContent = `${state.calls} image call${state.calls > 1 ? "s" : ""} used`;
-
-  renderCandidates(state.candidateUrls, data.settings.candidates);
-
-  state.attempts.push({
-    url: state.candidateUrls[0],
-    style: data.settings.cartoon_style,
-    intensity: data.settings.cartoon_intensity,
-  });
-  renderFilmstrip();
-
-  cartoonStatus.className = "status";
-  cartoonStatus.textContent =
-    `Attempt ${attemptNumber} ready via ${data.provider}. ` +
-    "Compare the two, then approve or tick what went wrong.";
-
-  sceneStage.classList.add("hidden");
-  cartoonStage.classList.remove("hidden");
-  cartoonStage.scrollIntoView({ behavior: "smooth", block: "start" });
-}
-
-function renderCandidates(urls, requested) {
-  if (urls.length < 2) {
-    candidatePicker.classList.add("hidden");
-    candidateStrip.innerHTML = "";
-    return;
-  }
-  candidatePicker.classList.remove("hidden");
-  candidateStrip.innerHTML = "";
-  urls.forEach((url, index) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = `candidate${index === 0 ? " chosen" : ""}`;
-    button.innerHTML = `<img src="${url}" alt="Option ${index + 1}"><span>Option ${index + 1}</span>`;
-    button.addEventListener("click", () => {
-      state.chosen = index;
-      document.getElementById("cartoon-image").src = url;
-      candidateStrip.querySelectorAll(".candidate").forEach((node, i) => {
-        node.classList.toggle("chosen", i === index);
-      });
-    });
-    candidateStrip.appendChild(button);
-  });
-  if (requested > 1 && urls.length < requested) {
-    const note = document.createElement("p");
-    note.className = "field-help";
-    note.textContent =
-      `You asked for ${requested} options; the provider returned ${urls.length}.`;
-    candidateStrip.appendChild(note);
-  }
-}
-
-function renderFilmstrip() {
-  if (state.attempts.length < 2) {
-    filmstripBlock.classList.add("hidden");
-    return;
-  }
-  filmstripBlock.classList.remove("hidden");
-  filmstrip.innerHTML = "";
-  state.attempts.forEach((attempt, index) => {
-    const figure = document.createElement("figure");
-    figure.innerHTML =
-      `<img src="${attempt.url}" alt="Attempt ${index + 1}">` +
-      `<figcaption>${index + 1} · ${attempt.style} · level ${attempt.intensity}</figcaption>`;
-    figure.addEventListener("click", () =>
-      openLightbox(attempt.url, `Attempt ${index + 1} · ${attempt.style}`));
-    filmstrip.appendChild(figure);
-  });
-}
-
-function clearChips() {
-  document
-    .querySelectorAll('#reject-chips input[name="reason"]')
-    .forEach((input) => {
-      input.checked = false;
-    });
-}
-
-function renderScene(data, oneStepMode) {
-  state.calls += oneStepMode ? 0 : 1;
-
-  document.getElementById("scene-title").textContent = data.scene_title;
-  document.getElementById("scene-image").src = data.images.scene_url;
-  document.getElementById("scene-cartoon-image").src = data.images.cartoon_url;
-  document.getElementById("scene-caption").textContent = data.caption;
-  document.getElementById("scene-cartoon-prompt").textContent = data.prompts.cartoon;
-  document.getElementById("scene-prompt").textContent = data.prompts.scene;
-  sceneCost.textContent = `${state.calls} image call${state.calls > 1 ? "s" : ""} used`;
-
-  const download = document.getElementById("download-scene");
-  download.href = data.images.scene_url;
-  download.download = `${data.scene_key}.${data.images.scene_extension || "png"}`;
-
-  const warnings = data.warnings || [];
-  sceneStatus.className = "status";
-  sceneStatus.textContent =
-    `Done via ${data.provider} (${data.model}). ` +
-    `Generation ${data.generation_id.slice(0, 8)}.` +
-    (warnings.length ? ` Note: ${warnings.join(" ")}` : "");
-
-  cartoonStage.classList.add("hidden");
-  sceneStage.classList.remove("hidden");
-  sceneStage.scrollIntoView({ behavior: "smooth", block: "start" });
-}
-
-function setBusy(statusEl, stageEl, message) {
-  statusEl.className = "status busy";
-  statusEl.textContent = message;
-  stageEl.classList.remove("hidden");
-  stageEl.scrollIntoView({ behavior: "smooth", block: "start" });
-}
-
-function setGenerationControlsDisabled(disabled) {
-  [submit, rejectButton, approveButton, otherSceneButton, startOverButton].forEach(
-    (button) => {
-      button.disabled = disabled;
-    },
-  );
-}
-
-function showCartoonError(message) {
-  cartoonStatus.className = "status error";
-  cartoonStatus.textContent = message;
-  cartoonStage.classList.remove("hidden");
-}
-
-function showSceneError(message) {
-  sceneStatus.className = "status error";
-  sceneStatus.textContent = message;
-  sceneStage.classList.remove("hidden");
 }

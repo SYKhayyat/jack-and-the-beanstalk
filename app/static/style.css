@@ -149,6 +149,45 @@ button.primary:disabled { background: #9aa5a0; cursor: progress; }
 .preview-wrap { margin-top: .9rem; }
 .preview-wrap img { max-width: 190px; border-radius: 8px; border: 1px solid var(--line); }
 
+/* Photo intake: picker and camera button side by side, then the in-page
+   camera pane (hidden until live) and inline status messages. */
+.photo-controls { display: flex; gap: .75rem; align-items: stretch; flex-wrap: wrap; }
+.photo-controls .file-label { flex: 1 1 16rem; }
+.photo-controls .file-label input[type="file"] { height: 100%; }
+
+.camera-pane { margin-top: .9rem; }
+.camera-pane video {
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #000;
+  /* Mirror the live view: people steer themselves by the mirror image. */
+  transform: scaleX(-1);
+}
+.camera-actions { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: .6rem; }
+
+.inline-message {
+  margin: .5rem 0 0;
+  font-size: .85rem;
+  color: var(--danger);
+}
+.inline-message.hidden { display: none; }
+
+/* Everything but photo + scene + call-to-action folds away here. */
+.advanced-options {
+  margin-top: 1.75rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--line);
+}
+.advanced-options > summary {
+  font-weight: 550;
+  color: var(--ink-soft);
+}
+.advanced-options > summary::marker { color: var(--ink-soft); }
+.advanced-options[open] > summary { margin-bottom: .5rem; }
+
 .hidden { display: none !important; }
 
 .status { margin-bottom: 1rem; font-size: .92rem; }

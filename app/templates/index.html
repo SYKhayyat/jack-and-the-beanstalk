@@ -6,10 +6,10 @@
   <title>Jack and the Beanstalk</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
+<body data-max-upload-mb="{{ max_upload_mb }}">
   <header class="masthead">
     <h1>Jack and the Beanstalk</h1>
-    <p class="tagline">Upload a photo. Cartoonify it your way. Step into the story.</p>
+    <p class="tagline">Take a photo. Cartoonify it your way. Step into the story.</p>
     <p class="provider-badge {{ 'provider-live' if provider.using_real_api else 'provider-mock' }}">
       Provider: <strong>{{ provider.name }}</strong> — {{ provider.reason }}
       {% if not provider.using_real_api %}
@@ -27,162 +27,33 @@
     <form id="generate-form" class="panel" enctype="multipart/form-data">
       <!-- 1. The photo -->
       <fieldset>
-        <legend>1. Your photo</legend>
-        <label class="file-label" for="photo">
-          <input type="file" id="photo" name="photo" accept="image/jpeg,image/png,image/webp" required>
-        </label>
-        <p class="field-help">JPEG, PNG or WEBP, up to {{ max_upload_mb }}MB. A clear, front-facing photo works best.</p>
+        <legend>Your photo</legend>
+        <div class="photo-controls">
+          <label class="file-label" for="photo">
+            <input type="file" id="photo" name="photo" accept="image/jpeg,image/png,image/webp">
+          </label>
+          <button type="button" id="use-camera" class="button secondary">Use camera</button>
+        </div>
+        <p class="field-help">Any size photo — we shrink it for you. A clear, front-facing photo works best.</p>
+        <p id="photo-message" class="inline-message hidden" role="status" aria-live="polite"></p>
+
+        <div id="camera-pane" class="camera-pane hidden">
+          <video id="camera-video" autoplay playsinline muted></video>
+          <div class="camera-actions">
+            <button type="button" id="camera-shutter" class="primary">Take the picture</button>
+            <button type="button" id="camera-cancel" class="button secondary">Cancel</button>
+          </div>
+        </div>
+        <p id="camera-message" class="inline-message error hidden" role="status" aria-live="polite"></p>
+
         <div id="preview-wrap" class="preview-wrap hidden">
-          <img id="preview" alt="Preview of your uploaded photo">
+          <img id="preview" alt="Preview of your chosen photo">
         </div>
       </fieldset>
 
-      <!-- 2. How cartoon, and which style -->
+      <!-- 2. The scene — the point of the app, so it stays up front -->
       <fieldset>
-        <legend>2. How cartoon?</legend>
-
-        <div class="control">
-          <label for="cartoon_intensity">
-            Cartoon vs. real
-            <output id="intensity-output" for="cartoon_intensity">{{ defaults.cartoon_intensity }}</output>
-          </label>
-          <input type="range" id="cartoon_intensity" name="cartoon_intensity"
-                 min="1" max="10" value="{{ defaults.cartoon_intensity }}">
-          <p class="scale-hints"><span>1 · nearly real</span><span>10 · fully graphic</span></p>
-        </div>
-
-        <div class="grid-2">
-          <div class="control">
-            <label for="cartoon_style">Cartoon style</label>
-            <select id="cartoon_style" name="cartoon_style">
-              {% for value, label in styles %}<option value="{{ value }}" {% if value == defaults.cartoon_style %}selected{% endif %}>{{ label }}</option>{% endfor %}
-            </select>
-          </div>
-
-          <div class="control">
-            <label for="likeness_strength">Likeness to the real you</label>
-            <select id="likeness_strength" name="likeness_strength">
-              {% for value, label in likeness_levels %}<option value="{{ value }}" {% if value == defaults.likeness_strength %}selected{% endif %}>{{ label }}</option>{% endfor %}
-            </select>
-            <p class="field-help">Strict keeps your face most recognisable.</p>
-          </div>
-        </div>
-
-        <div class="control">
-          <label for="aspect_ratio">Picture shape</label>
-          <select id="aspect_ratio" name="aspect_ratio">
-            {% for value, label in aspect_ratios %}<option value="{{ value }}" {% if value == defaults.aspect_ratio %}selected{% endif %}>{{ value }} — {{ label }}</option>{% endfor %}
-          </select>
-        </div>
-
-        <div class="grid-2">
-          <div class="control">
-            <label for="portrait_background">Portrait background</label>
-            <select id="portrait_background" name="portrait_background">
-              {% for value, label in backgrounds %}<option value="{{ value }}" {% if value == defaults.portrait_background %}selected{% endif %}>{{ label }}</option>{% endfor %}
-            </select>
-            <p class="field-help">
-              Applied when drawing your cartoon self, so you can judge it clearly.
-              The final scene always uses the scene's own background.
-            </p>
-          </div>
-
-          <div class="control">
-            <label for="candidates">Options to choose from</label>
-            <select id="candidates" name="candidates">
-              <option value="1" selected>1 — cheapest</option>
-              <option value="2">2 — pick the better one</option>
-              <option value="3">3 — most choice, 3× the cost</option>
-            </select>
-            <p class="field-help">
-              All options come from a single call, but you are billed for each
-              image it returns.
-            </p>
-          </div>
-        </div>
-      </fieldset>
-
-      <!-- 3. Who the character is -->
-      <fieldset>
-        <legend>3. Who is the character?</legend>
-        <div class="grid-3">
-          <div class="control">
-            <label for="apparent_age">Age</label>
-            <select id="apparent_age" name="apparent_age">
-              {% for value, label in ages %}<option value="{{ value }}" {% if value == defaults.apparent_age %}selected{% endif %}>{{ label }}</option>{% endfor %}
-            </select>
-          </div>
-          <div class="control">
-            <label for="character_gender">Which should the character be?</label>
-            <select id="character_gender" name="character_gender">
-              {% for value, label in genders %}<option value="{{ value }}" {% if value == defaults.character_gender %}selected{% endif %}>{{ label }}</option>{% endfor %}
-            </select>
-            <p class="field-help">Boy is Jack; girl is Jane.</p>
-          </div>
-          <div class="control" id="photo-gender-control">
-            <label for="photo_gender">The photo shows a</label>
-            <select id="photo_gender" name="photo_gender">
-              {% for value, label in photo_genders %}<option value="{{ value }}" {% if value == defaults.photo_gender %}selected{% endif %}>{{ label }}</option>{% endfor %}
-            </select>
-            <p class="field-help">Only used when you chose “Match the photo”.</p>
-          </div>
-          <div class="control">
-            <label for="skin_tone">Skin tone</label>
-            <select id="skin_tone" name="skin_tone">
-              {% for value, label in skin_tones %}<option value="{{ value }}" {% if value == defaults.skin_tone %}selected{% endif %}>{{ label }}</option>{% endfor %}
-            </select>
-          </div>
-        </div>
-
-        <div class="grid-3">
-          <div class="control">
-            <label for="hair_style">Hair</label>
-            <select id="hair_style" name="hair_style">
-              {% for value, label in hair_styles %}<option value="{{ value }}" {% if value == defaults.hair_style %}selected{% endif %}>{{ label }}</option>{% endfor %}
-            </select>
-          </div>
-          <div class="control">
-            <label for="hair_color">Hair colour</label>
-            <select id="hair_color" name="hair_color">
-              {% for value, label in hair_colours %}<option value="{{ value }}" {% if value == defaults.hair_color %}selected{% endif %}>{{ label }}</option>{% endfor %}
-            </select>
-          </div>
-          <div class="control">
-            <label for="expression">Expression</label>
-            <select id="expression" name="expression">
-              {% for value, label in expressions %}<option value="{{ value }}" {% if value == defaults.expression %}selected{% endif %}>{{ label }}</option>{% endfor %}
-            </select>
-          </div>
-        </div>
-
-        <div class="control">
-          <label for="outfit">Outfit</label>
-          <select id="outfit" name="outfit">
-            {% for value, label in outfits %}<option value="{{ value }}" {% if value == defaults.outfit %}selected{% endif %}>{{ label }}</option>{% endfor %}
-          </select>
-          <p class="field-help">
-            Pick from the list rather than describing it — see the note on the
-            one-step box below about free text.
-          </p>
-        </div>
-
-        <div class="checks">
-          <label class="check">
-            <input type="hidden" name="keep_glasses" value="false">
-            <input type="checkbox" name="keep_glasses" value="true" {% if defaults.keep_glasses %}checked{% endif %}>
-            <span>Keep my glasses</span>
-          </label>
-          <label class="check">
-            <input type="hidden" name="keep_facial_hair" value="false">
-            <input type="checkbox" name="keep_facial_hair" value="true" {% if defaults.keep_facial_hair %}checked{% endif %}>
-            <span>Keep my facial hair</span>
-          </label>
-        </div>
-      </fieldset>
-
-      <!-- 4. The scene -->
-      <fieldset>
-        <legend>4. Which scene?</legend>
+        <legend>Which scene?</legend>
         <div class="scenes">
           {% for scene in scenes %}
           <label class="scene">
@@ -194,22 +65,170 @@
         </div>
       </fieldset>
 
-      <div class="one-step">
-        <label class="check">
-          <input type="checkbox" id="one_step" name="one_step" value="true">
-          <span class="one-step-title">Do it in one step — skip the review</span>
-        </label>
-        <p class="one-step-help">
-          Off, you see your cartoon and can change it before paying for the
-          scene. On, you get both images straight away, for 2 image calls
-          instead of 1.
-        </p>
-      </div>
-
       <div class="submit-block">
         <button type="submit" id="submit" class="primary">Step 1 · Cartoonify me</button>
         <p class="submit-help">This costs one image call. You will see the cartoon before spending anything on the scene.</p>
       </div>
+
+      <!-- Everything else folds away. Defaults are exactly the server defaults:
+           nothing here needs to be changed for the app to work. -->
+      <details id="advanced-options" class="advanced-options">
+        <summary>Advanced options</summary>
+        <p class="field-help">Every setting already has a good default — change only what you want.</p>
+
+        <fieldset>
+          <legend>How cartoon?</legend>
+
+          <div class="control">
+            <label for="cartoon_intensity">
+              Cartoon vs. real
+              <output id="intensity-output" for="cartoon_intensity">{{ defaults.cartoon_intensity }}</output>
+            </label>
+            <input type="range" id="cartoon_intensity" name="cartoon_intensity"
+                   min="1" max="10" value="{{ defaults.cartoon_intensity }}">
+            <p class="scale-hints"><span>1 · nearly real</span><span>10 · fully graphic</span></p>
+          </div>
+
+          <div class="grid-2">
+            <div class="control">
+              <label for="cartoon_style">Cartoon style</label>
+              <select id="cartoon_style" name="cartoon_style">
+                {% for value, label in styles %}<option value="{{ value }}" {% if value == defaults.cartoon_style %}selected{% endif %}>{{ label }}</option>{% endfor %}
+              </select>
+            </div>
+
+            <div class="control">
+              <label for="likeness_strength">Likeness to the real you</label>
+              <select id="likeness_strength" name="likeness_strength">
+                {% for value, label in likeness_levels %}<option value="{{ value }}" {% if value == defaults.likeness_strength %}selected{% endif %}>{{ label }}</option>{% endfor %}
+              </select>
+              <p class="field-help">Strict keeps your face most recognisable.</p>
+            </div>
+          </div>
+
+          <div class="control">
+            <label for="aspect_ratio">Picture shape</label>
+            <select id="aspect_ratio" name="aspect_ratio">
+              {% for value, label in aspect_ratios %}<option value="{{ value }}" {% if value == defaults.aspect_ratio %}selected{% endif %}>{{ value }} — {{ label }}</option>{% endfor %}
+            </select>
+          </div>
+
+          <div class="grid-2">
+            <div class="control">
+              <label for="portrait_background">Portrait background</label>
+              <select id="portrait_background" name="portrait_background">
+                {% for value, label in backgrounds %}<option value="{{ value }}" {% if value == defaults.portrait_background %}selected{% endif %}>{{ label }}</option>{% endfor %}
+              </select>
+              <p class="field-help">
+                Applied when drawing your cartoon self, so you can judge it clearly.
+                The final scene always uses the scene's own background.
+              </p>
+            </div>
+
+            <div class="control">
+              <label for="candidates">Options to choose from</label>
+              <select id="candidates" name="candidates">
+                <option value="1" selected>1 — cheapest</option>
+                <option value="2">2 — pick the better one</option>
+                <option value="3">3 — most choice, 3× the cost</option>
+              </select>
+              <p class="field-help">
+                All options come from a single call, but you are billed for each
+                image it returns.
+              </p>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Who is the character?</legend>
+          <div class="grid-3">
+            <div class="control">
+              <label for="apparent_age">Age</label>
+              <select id="apparent_age" name="apparent_age">
+                {% for value, label in ages %}<option value="{{ value }}" {% if value == defaults.apparent_age %}selected{% endif %}>{{ label }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="control">
+              <label for="character_gender">Which should the character be?</label>
+              <select id="character_gender" name="character_gender">
+                {% for value, label in genders %}<option value="{{ value }}" {% if value == defaults.character_gender %}selected{% endif %}>{{ label }}</option>{% endfor %}
+              </select>
+              <p class="field-help">Boy is Jack; girl is Jane.</p>
+            </div>
+            <div class="control" id="photo-gender-control">
+              <label for="photo_gender">The photo shows a</label>
+              <select id="photo_gender" name="photo_gender">
+                {% for value, label in photo_genders %}<option value="{{ value }}" {% if value == defaults.photo_gender %}selected{% endif %}>{{ label }}</option>{% endfor %}
+              </select>
+              <p class="field-help">Only used when you chose “Match the photo”.</p>
+            </div>
+            <div class="control">
+              <label for="skin_tone">Skin tone</label>
+              <select id="skin_tone" name="skin_tone">
+                {% for value, label in skin_tones %}<option value="{{ value }}" {% if value == defaults.skin_tone %}selected{% endif %}>{{ label }}</option>{% endfor %}
+              </select>
+            </div>
+          </div>
+
+          <div class="grid-3">
+            <div class="control">
+              <label for="hair_style">Hair</label>
+              <select id="hair_style" name="hair_style">
+                {% for value, label in hair_styles %}<option value="{{ value }}" {% if value == defaults.hair_style %}selected{% endif %}>{{ label }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="control">
+              <label for="hair_color">Hair colour</label>
+              <select id="hair_color" name="hair_color">
+                {% for value, label in hair_colours %}<option value="{{ value }}" {% if value == defaults.hair_color %}selected{% endif %}>{{ label }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="control">
+              <label for="expression">Expression</label>
+              <select id="expression" name="expression">
+                {% for value, label in expressions %}<option value="{{ value }}" {% if value == defaults.expression %}selected{% endif %}>{{ label }}</option>{% endfor %}
+              </select>
+            </div>
+          </div>
+
+          <div class="control">
+            <label for="outfit">Outfit</label>
+            <select id="outfit" name="outfit">
+              {% for value, label in outfits %}<option value="{{ value }}" {% if value == defaults.outfit %}selected{% endif %}>{{ label }}</option>{% endfor %}
+            </select>
+            <p class="field-help">
+              Pick from the list rather than describing it — see the note on the
+              one-step box below about free text.
+            </p>
+          </div>
+
+          <div class="checks">
+            <label class="check">
+              <input type="hidden" name="keep_glasses" value="false">
+              <input type="checkbox" name="keep_glasses" value="true" {% if defaults.keep_glasses %}checked{% endif %}>
+              <span>Keep my glasses</span>
+            </label>
+            <label class="check">
+              <input type="hidden" name="keep_facial_hair" value="false">
+              <input type="checkbox" name="keep_facial_hair" value="true" {% if defaults.keep_facial_hair %}checked{% endif %}>
+              <span>Keep my facial hair</span>
+            </label>
+          </div>
+        </fieldset>
+
+        <div class="one-step">
+          <label class="check">
+            <input type="checkbox" id="one_step" name="one_step" value="true">
+            <span class="one-step-title">Do it in one step — skip the review</span>
+          </label>
+          <p class="one-step-help">
+            Off, you see your cartoon and can change it before paying for the
+            scene. On, you get both images straight away, for 2 image calls
+            instead of 1.
+          </p>
+        </div>
+      </details>
     </form>
 
     <!-- Results -->
@@ -225,7 +244,7 @@
         <figure class="compare-side">
           <figcaption>Your photo</figcaption>
           <button type="button" class="zoom" data-zoom="original" aria-label="Enlarge your photo">
-            <img id="original-thumb" alt="The photo you uploaded">
+            <img id="original-thumb" alt="The photo you chose">
             <span class="zoom-hint">click to enlarge</span>
           </button>
         </figure>
@@ -247,10 +266,17 @@
         <button type="button" id="approve-cartoon" class="primary">
           Approve — put me in the scene
         </button>
-        <span class="cost-note">+1 image call</span>
+        <button type="button" id="reject-toggle" class="button secondary" aria-expanded="false" aria-controls="reject-body">
+          Not right
+        </button>
+        <button type="button" id="start-over-review" data-start-over class="button secondary">
+          Start over
+        </button>
+        <span class="cost-note">Approving costs +1 image call</span>
       </div>
 
-      <div class="reject">
+      <!-- Hidden until "Not right": precise feedback, chip by chip. -->
+      <div id="reject-body" class="reject hidden">
         <h3>Not right? Tick what went wrong</h3>
         <p class="field-help">
           Each tick becomes a correction in the next attempt's prompt. There is
@@ -331,7 +357,7 @@
         <button type="button" id="other-scene" class="button secondary">
           Same cartoon, other scene (+1 call)
         </button>
-        <button type="button" id="start-over" class="button secondary">
+        <button type="button" id="start-over" data-start-over class="button secondary">
           Start over with a new cartoon
         </button>
       </div>
@@ -339,6 +365,6 @@
 
   </main>
 
-  <script src="/static/app.js"></script>
+  <script type="module" src="/static/app.js"></script>
 </body>
 </html>
